@@ -1,23 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+
+function readStoredUpvotes(): number {
+  if (typeof window === "undefined") return 32;
+  const stored = localStorage.getItem("volt_upvotes");
+  return stored ? parseInt(stored, 10) : 32;
+}
+
+function readStoredUpvoted(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem("volt_upvoted") === "true";
+}
 
 export default function Waitlist() {
-  const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
   const [upvotes, setUpvotes] = useState(32);
   const [upvoted, setUpvoted] = useState(false);
 
   useEffect(() => {
-    const storedUpvotes = localStorage.getItem("volt_upvotes");
-    const storedUpvoted = localStorage.getItem("volt_upvoted");
-
-    if (storedUpvotes) {
-      setUpvotes(parseInt(storedUpvotes, 10));
-    }
-    if (storedUpvoted === "true") {
-      setUpvoted(true);
-    }
+    // ponytail: one-time localStorage read on mount, extra render is harmless for a cosmetic counter
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUpvotes(readStoredUpvotes());
+    setUpvoted(readStoredUpvoted());
   }, []);
 
   useEffect(() => {
@@ -27,12 +31,6 @@ export default function Waitlist() {
   useEffect(() => {
     localStorage.setItem("volt_upvoted", upvoted.toString());
   }, [upvoted]);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
-    setEmail("");
-  }
 
   function handleUpvote() {
     if (upvoted) return;
@@ -55,32 +53,27 @@ export default function Waitlist() {
           href="https://github.com/your-repo"
           target="_blank"
           rel="noopener noreferrer"
-          className="px-6 py-2 rounded-xl bg-[#DFFF2A] text-black text-sm font-medium hover:bg-[#c2ee2c] transition-colors duration-200"
-          style={{
-            background: 'linear-gradient(135deg, #2F7BFF, #42A5FF)',
-          }}
+          className="px-6 py-2 rounded-xl bg-[#0F172A] text-white text-sm font-medium hover:bg-[#c2ee2c] transition-colors duration-200"
         >
           Star on GitHub
         </a>
       </nav>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-8 text-center relative z-10 overflow-auto">
-
-        <h1 className="text-6xl sm:text-7xl font-medium tracking-tight max-w-4xl  mt-8">
-          The email client Big Tech doesn't want you to have. Open source.
+        <h1 className="text-6xl sm:text-7xl font-medium tracking-tight max-w-4xl mt-8">
+          The email client Big Tech doesn&apos;t want you to have. Open source.
         </h1>
 
         <p className="text-gray-600 text-base sm:text-lg mt-5 max-w-2xl leading-relaxed">
-          Open source, self-hosted, and faster than anything you've paid for.
+          Open source, self-hosted, and faster than anything you&apos;ve paid for.
         </p>
 
-        <div className="flex flex-row items-center mt-10 gap-4  max-w-md">
+        <div className="flex flex-row items-center mt-10 gap-4 max-w-md">
           <button
             type="button"
             onClick={handleUpvote}
             disabled={upvoted}
             className="cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2 px-6 py-3 rounded-2xl text-white bg-[#0F172A] border border-black/10 hover:bg-[#1E293B] transition-colors duration-200 text-sm font-medium"
-         
           >
             <svg
               width="16"
@@ -97,32 +90,14 @@ export default function Waitlist() {
             Upvote
           </button>
           <p className="text-sm text-gray-800 text-left">
-            {upvotes} people want this, "Upvote if you're tired of email clients that don't respect your data."
+            {upvotes} people want this, &quot;Upvote if you&apos;re tired of email clients that don&apos;t respect your data.&quot;
           </p>
         </div>
       </main>
 
       <footer className="text-center pb-10 text-xs text-gray-600 relative z-10">
-        <div className="flex items-center justify-center gap-4">
-          <a
-            href="https://x.com/nishalbuilds"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:opacity-80 transition-opacity"
-          >
-            <img width="24" height="24" src="https://img.icons8.com/ios-filled/50/twitterx--v1.png" alt="twitterx--v1" />
-          </a>
-          <a
-            href="https://www.linkedin.com/in/nishal-poojary/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:opacity-80 transition-opacity"
-          >
-            <img width="24" height="24" src="https://img.icons8.com/color/48/linkedin.png" alt="linkedin" />
-          </a>
-        </div>
-        <p className="mt-3 text-sm">
-          Everything's public, the wins, the bugs, the 3am commits →{" "}
+        <p className="text-sm">
+          Everything&apos;s public, the wins, the bugs, the 3am commits →{" "}
           <a href="https://www.linkedin.com/in/nishal-poojary/" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-400">
             LinkedIn
           </a>
