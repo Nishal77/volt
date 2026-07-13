@@ -6,6 +6,7 @@ import (
 
 	"github.com/Nishal77/volt/backend/internal/api"
 	"github.com/Nishal77/volt/backend/internal/config"
+	"github.com/Nishal77/volt/backend/internal/crypto"
 	"github.com/Nishal77/volt/backend/internal/db"
 )
 
@@ -18,7 +19,16 @@ func main() {
 	}
 	defer pool.Close()
 
-	r := api.NewRouter(pool)
+	if err := db.EnsureSchema(context.Background(), pool); err != nil {
+		log.Fatalf("db schema: %v", err)
+	}
+
+	encKey, err := crypto.LoadKey(cfg.TokenEncryptionKey)
+	if err != nil {
+		log.Fatalf("token encryption key: %v", err)
+	}
+
+	r := api.NewRouter(pool, cfg, encKey)
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server: %v", err)
 	}
