@@ -1,5 +1,5 @@
-import Waitlist from "./waitlist/page";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <Waitlist />;
+  redirect("/inbox");
 }

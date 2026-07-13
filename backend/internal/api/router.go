@@ -15,6 +15,14 @@ import (
 // AES-256 key used to encrypt the stored Gmail token at rest.
 func NewRouter(pool *pgxpool.Pool, cfg config.Config, encKey []byte) *gin.Engine {
 	r := gin.Default()
+	r.Use(corsMiddleware(cfg.FrontendURL))
+	r.NoRoute(func(c *gin.Context) {
+		if c.Request.Method == http.MethodOptions {
+			c.Status(http.StatusNoContent)
+			return
+		}
+		c.Status(http.StatusNotFound)
+	})
 
 	r.GET("/health", func(c *gin.Context) {
 		if err := pool.Ping(context.Background()); err != nil {
@@ -37,4 +45,16 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config, encKey []byte) *gin.Engine
 	inbox.POST("/:id/reply", replyThreadHandler(oauthCfg, pool, encKey))
 
 	return r
+}
+
+// corsMiddleware lets the frontend (a different origin in dev, e.g.
+// localhost:3000 vs :8080) call the API from the browser. Single allowed
+// origin, no wildcard — this instance only ever serves its own frontend.
+func corsMiddleware(frontendURL string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", frontendURL)
+		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type")
+		c.Next()
+	}
 }
