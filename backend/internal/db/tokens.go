@@ -24,6 +24,17 @@ CREATE TABLE IF NOT EXISTS gmail_token (
 	id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
 	encrypted_token BYTEA NOT NULL,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ai_key (
+	id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+	provider TEXT NOT NULL,
+	encrypted_key BYTEA NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ai_summary (
+	thread_id TEXT PRIMARY KEY,
+	summary TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );`
 
 // EnsureSchema creates the token table if it doesn't exist yet.

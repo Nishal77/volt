@@ -13,6 +13,9 @@ type Config struct {
 	TokenEncryptionKey string
 	// FrontendURL is where the OAuth callback redirects after a successful connect.
 	FrontendURL string
+	// PromptsDir points at docs/prompts — the single source of truth for AI
+	// prompt templates, loaded at runtime rather than duplicated in code.
+	PromptsDir string
 }
 
 func Load() Config {
@@ -24,6 +27,7 @@ func Load() Config {
 		GoogleRedirectURL:  getenv("GOOGLE_REDIRECT_URL", "http://localhost:8080/auth/google/callback"),
 		TokenEncryptionKey: getenv("TOKEN_ENCRYPTION_KEY", ""),
 		FrontendURL:        getenv("FRONTEND_URL", "http://localhost:3000"),
+		PromptsDir:         getenv("PROMPTS_DIR", "../docs/prompts"),
 	}
 }
 

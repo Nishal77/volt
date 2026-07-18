@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCommandPalette, type Command } from "../components/CommandPalette";
@@ -46,6 +46,10 @@ function InboxContent() {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Message[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   function load() {
     fetch(`${API_URL}/api/inbox`)
@@ -74,25 +78,51 @@ function InboxContent() {
     router.push(`/inbox/${threadId}`);
   }
 
+  async function runSearch(e?: FormEvent) {
+    e?.preventDefault();
+    if (!query.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    try {
+      const res = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSearchResults(data.messages);
+      setSelected(0);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  const visibleMessages = searchResults ?? messages;
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (isTypingTarget(e.target) || !messages || messages.length === 0) return;
+      if (isTypingTarget(e.target)) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (!visibleMessages || visibleMessages.length === 0) return;
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
-        setSelected((i) => Math.min(i + 1, messages.length - 1));
+        setSelected((i) => Math.min(i + 1, visibleMessages.length - 1));
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
         setSelected((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter" || e.key === "o") {
-        open(messages[selected].thread_id);
+        open(visibleMessages[selected].thread_id);
       } else if (e.key === "x") {
-        archive(messages[selected].thread_id);
+        archive(visibleMessages[selected].thread_id);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, selected]);
+  }, [visibleMessages, selected]);
 
   const commands: Command[] = [
     { id: "reload", label: "Reload inbox", run: load },
@@ -128,14 +158,42 @@ function InboxContent() {
     return <div className="min-h-screen flex items-center justify-center bg-black text-white">{palette}Loading…</div>;
   }
 
+  const visible = searchResults ?? messages;
+
   return (
     <div className="min-h-screen bg-black text-white">
       {palette}
+      <div className="max-w-2xl mx-auto px-4 pt-4 flex items-center gap-2">
+        <form onSubmit={runSearch} className="flex-1 flex gap-2">
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search inbox… (/ to focus)"
+            className="flex-1 rounded-xl bg-white/5 border border-white/10 p-2 text-sm"
+          />
+          {searchResults && (
+            <button
+              type="button"
+              onClick={() => { setSearchResults(null); setQuery(""); }}
+              className="px-3 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-sm"
+            >
+              Clear
+            </button>
+          )}
+        </form>
+        <Link href="/settings" className="text-sm text-gray-400 hover:text-white whitespace-nowrap">
+          AI settings
+        </Link>
+      </div>
+      {searching && <div className="max-w-2xl mx-auto px-4 pt-2 text-sm text-gray-500">Searching…</div>}
       <ul className="max-w-2xl mx-auto divide-y divide-white/10">
-        {messages.length === 0 && (
-          <li className="px-4 py-8 text-center text-gray-400">Inbox zero.</li>
+        {visible.length === 0 && (
+          <li className="px-4 py-8 text-center text-gray-400">
+            {searchResults ? "No matches." : "Inbox zero."}
+          </li>
         )}
-        {messages.map((m, i) => (
+        {visible.map((m, i) => (
           <li key={m.thread_id}>
             <Link
               href={`/inbox/${m.thread_id}`}

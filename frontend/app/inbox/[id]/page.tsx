@@ -30,6 +30,9 @@ export default function ThreadPage() {
   const [error, setError] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -66,6 +69,31 @@ export default function ThreadPage() {
     }
   }
 
+  async function summarize() {
+    setSummarizing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/inbox/${id}/summarize`, { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSummary(data.summary);
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  async function draftReply() {
+    setDrafting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/inbox/${id}/draft`, { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setReplyBody(data.draft);
+      replyRef.current?.focus();
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   function insertSnippet(body: string) {
     setReplyBody((prev) => prev + applyVariables(body));
     replyRef.current?.focus();
@@ -95,6 +123,8 @@ export default function ThreadPage() {
     { id: "archive", label: "Archive thread", run: archive },
     { id: "reply", label: "Focus reply box", run: () => replyRef.current?.focus() },
     { id: "back", label: "Back to inbox", run: () => router.push("/inbox") },
+    { id: "summarize", label: "AI: Summarize thread", run: summarize },
+    { id: "draft", label: "AI: Draft reply", run: draftReply },
     ...loadSnippets().map((s) => ({ id: s.id, label: `Insert snippet: ${s.name}`, run: () => insertSnippet(s.body) })),
   ];
   const { palette } = useCommandPalette(commands);
@@ -125,13 +155,37 @@ export default function ThreadPage() {
     <div className="min-h-screen bg-black text-white">
       {palette}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <button
-          type="button"
-          onClick={archive}
-          className="mb-4 px-4 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-sm"
-        >
-          Archive
-        </button>
+        <div className="mb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={archive}
+            className="px-4 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-sm"
+          >
+            Archive
+          </button>
+          <button
+            type="button"
+            onClick={summarize}
+            disabled={summarizing}
+            className="px-4 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-60 text-sm"
+          >
+            {summarizing ? "Summarizing…" : "AI Summarize"}
+          </button>
+          <button
+            type="button"
+            onClick={draftReply}
+            disabled={drafting}
+            className="px-4 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-60 text-sm"
+          >
+            {drafting ? "Drafting…" : "AI Draft reply"}
+          </button>
+        </div>
+
+        {summary && (
+          <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-gray-300">
+            {summary}
+          </div>
+        )}
 
         <div className="space-y-4">
           {thread.messages.map((m) => (

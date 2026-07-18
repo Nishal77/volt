@@ -43,6 +43,14 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config, encKey []byte) *gin.Engine
 	inbox.POST("/:id/archive", archiveThreadHandler(oauthCfg, pool, encKey))
 	inbox.POST("/:id/read", setReadHandler(oauthCfg, pool, encKey))
 	inbox.POST("/:id/reply", replyThreadHandler(oauthCfg, pool, encKey))
+	inbox.POST("/:id/summarize", summarizeThreadHandler(oauthCfg, pool, encKey, cfg.PromptsDir))
+	inbox.POST("/:id/draft", draftReplyHandler(oauthCfg, pool, encKey, cfg.PromptsDir))
+
+	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, encKey, cfg.PromptsDir))
+
+	settings := r.Group("/api/settings")
+	settings.POST("/ai-key", saveAIKeyHandler(pool, encKey))
+	settings.GET("/ai-key", getAIKeyStatusHandler(pool, encKey))
 
 	return r
 }
