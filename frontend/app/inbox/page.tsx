@@ -49,6 +49,7 @@ function InboxContent() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Message[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -85,9 +86,16 @@ function InboxContent() {
       return;
     }
     setSearching(true);
+    setSearchError(null);
     try {
       const res = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setSearchError(
+          body.error === "ai_not_configured" ? "No AI key configured — add one in AI settings." : "Search failed. Try again."
+        );
+        return;
+      }
       const data = await res.json();
       setSearchResults(data.messages);
       setSelected(0);
@@ -187,6 +195,9 @@ function InboxContent() {
         </Link>
       </div>
       {searching && <div className="max-w-2xl mx-auto px-4 pt-2 text-sm text-gray-500">Searching…</div>}
+      {searchError && (
+        <div className="max-w-2xl mx-auto px-4 pt-2 text-sm text-red-300">{searchError}</div>
+      )}
       <ul className="max-w-2xl mx-auto divide-y divide-white/10">
         {visible.length === 0 && (
           <li className="px-4 py-8 text-center text-gray-400">

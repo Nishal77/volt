@@ -22,6 +22,12 @@ type Thread = {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
+async function aiErrorMessage(res: Response): Promise<string> {
+  const body = await res.json().catch(() => ({}));
+  if (body.error === "ai_not_configured") return "No AI key configured — add one in AI settings.";
+  return "AI request failed. Try again.";
+}
+
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -33,6 +39,7 @@ export default function ThreadPage() {
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -71,9 +78,13 @@ export default function ThreadPage() {
 
   async function summarize() {
     setSummarizing(true);
+    setAiError(null);
     try {
       const res = await fetch(`${API_URL}/api/inbox/${id}/summarize`, { method: "POST" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setAiError(await aiErrorMessage(res));
+        return;
+      }
       const data = await res.json();
       setSummary(data.summary);
     } finally {
@@ -83,9 +94,13 @@ export default function ThreadPage() {
 
   async function draftReply() {
     setDrafting(true);
+    setAiError(null);
     try {
       const res = await fetch(`${API_URL}/api/inbox/${id}/draft`, { method: "POST" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setAiError(await aiErrorMessage(res));
+        return;
+      }
       const data = await res.json();
       setReplyBody(data.draft);
       replyRef.current?.focus();
@@ -180,6 +195,12 @@ export default function ThreadPage() {
             {drafting ? "Drafting…" : "AI Draft reply"}
           </button>
         </div>
+
+        {aiError && (
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+            {aiError}
+          </div>
+        )}
 
         {summary && (
           <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-gray-300">
