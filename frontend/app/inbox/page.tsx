@@ -2,7 +2,9 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCommandPalette, type Command } from "../components/CommandPalette";
+import { isTypingTarget } from "../lib/snippets";
 
 type Message = {
   thread_id: string;
@@ -38,13 +40,14 @@ export default function InboxPage() {
 
 function InboxContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const oauthError = searchParams.get("error");
 
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState(0);
 
-  useEffect(() => {
-    if (oauthError) return;
+  function load() {
     fetch(`${API_URL}/api/inbox`)
       .then(async (res) => {
         if (!res.ok) {
@@ -55,13 +58,60 @@ function InboxContent() {
       })
       .then((data) => setMessages(data.messages))
       .catch((err) => setError(err instanceof Error ? err.message : "failed_to_load"));
+  }
+
+  useEffect(() => {
+    if (oauthError) return;
+    load();
   }, [oauthError]);
 
-  if (oauthError) return <ConnectGmail reason={oauthError} />;
-  if (error === "not_connected" || error === "reconnect_required") return <ConnectGmail reason={error} />;
+  function archive(threadId: string) {
+    fetch(`${API_URL}/api/inbox/${threadId}/archive`, { method: "POST" });
+    setMessages((prev) => (prev ? prev.filter((m) => m.thread_id !== threadId) : prev));
+  }
+
+  function open(threadId: string) {
+    router.push(`/inbox/${threadId}`);
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (isTypingTarget(e.target) || !messages || messages.length === 0) return;
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelected((i) => Math.min(i + 1, messages.length - 1));
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelected((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter" || e.key === "o") {
+        open(messages[selected].thread_id);
+      } else if (e.key === "x") {
+        archive(messages[selected].thread_id);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, selected]);
+
+  const commands: Command[] = [
+    { id: "reload", label: "Reload inbox", run: load },
+    { id: "snippets", label: "Manage snippets", run: () => router.push("/snippets") },
+    ...(messages && messages[selected]
+      ? [
+          { id: "open", label: "Open selected thread", run: () => open(messages[selected].thread_id) },
+          { id: "archive", label: "Archive selected thread", run: () => archive(messages[selected].thread_id) },
+        ]
+      : []),
+  ];
+  const { palette } = useCommandPalette(commands);
+
+  if (oauthError) return <>{palette}<ConnectGmail reason={oauthError} /></>;
+  if (error === "not_connected" || error === "reconnect_required") return <>{palette}<ConnectGmail reason={error} /></>;
   if (error === "rate_limited") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        {palette}
         Gmail is rate-limiting requests right now — try again in a minute.
       </div>
     );
@@ -69,23 +119,29 @@ function InboxContent() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        {palette}
         Failed to load inbox: {error}
       </div>
     );
   }
   if (!messages) {
-    return <div className="min-h-screen flex items-center justify-center bg-black text-white">Loading…</div>;
+    return <div className="min-h-screen flex items-center justify-center bg-black text-white">{palette}Loading…</div>;
   }
 
   return (
     <div className="min-h-screen bg-black text-white">
+      {palette}
       <ul className="max-w-2xl mx-auto divide-y divide-white/10">
         {messages.length === 0 && (
           <li className="px-4 py-8 text-center text-gray-400">Inbox zero.</li>
         )}
-        {messages.map((m) => (
+        {messages.map((m, i) => (
           <li key={m.thread_id}>
-            <Link href={`/inbox/${m.thread_id}`} className="block px-4 py-3 hover:bg-white/5">
+            <Link
+              href={`/inbox/${m.thread_id}`}
+              onMouseEnter={() => setSelected(i)}
+              className={`block px-4 py-3 hover:bg-white/5 ${i === selected ? "bg-white/10" : ""}`}
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className={`truncate ${m.unread ? "font-semibold" : "text-gray-300"}`}>{m.from}</span>
                 {m.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-[#c2ee2c]" />}

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useCommandPalette, type Command } from "../../components/CommandPalette";
+import { applyVariables, isTypingTarget, loadSnippets } from "../../lib/snippets";
 
 type Message = {
   id: string;
@@ -28,6 +30,7 @@ export default function ThreadPage() {
   const [error, setError] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [sending, setSending] = useState(false);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/api/inbox/${id}`)
@@ -63,9 +66,43 @@ export default function ThreadPage() {
     }
   }
 
+  function insertSnippet(body: string) {
+    setReplyBody((prev) => prev + applyVariables(body));
+    replyRef.current?.focus();
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          sendReply(e as unknown as FormEvent);
+        }
+        return;
+      }
+      if (e.key === "x") archive();
+      else if (e.key === "r") {
+        e.preventDefault();
+        replyRef.current?.focus();
+      } else if (e.key === "Escape") router.push("/inbox");
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread, replyBody]);
+
+  const commands: Command[] = [
+    { id: "archive", label: "Archive thread", run: archive },
+    { id: "reply", label: "Focus reply box", run: () => replyRef.current?.focus() },
+    { id: "back", label: "Back to inbox", run: () => router.push("/inbox") },
+    ...loadSnippets().map((s) => ({ id: s.id, label: `Insert snippet: ${s.name}`, run: () => insertSnippet(s.body) })),
+  ];
+  const { palette } = useCommandPalette(commands);
+
   if (error === "not_connected" || error === "reconnect_required") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        {palette}
         <a href={`${API_URL}/auth/google`} className="px-6 py-3 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-sm">
           Reconnect Gmail
         </a>
@@ -75,16 +112,18 @@ export default function ThreadPage() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        {palette}
         Failed to load thread: {error}
       </div>
     );
   }
   if (!thread) {
-    return <div className="min-h-screen flex items-center justify-center bg-black text-white">Loading…</div>;
+    return <div className="min-h-screen flex items-center justify-center bg-black text-white">{palette}Loading…</div>;
   }
 
   return (
     <div className="min-h-screen bg-black text-white">
+      {palette}
       <div className="max-w-2xl mx-auto px-4 py-6">
         <button
           type="button"
@@ -108,9 +147,10 @@ export default function ThreadPage() {
 
         <form onSubmit={sendReply} className="mt-6">
           <textarea
+            ref={replyRef}
             value={replyBody}
             onChange={(e) => setReplyBody(e.target.value)}
-            placeholder="Reply…"
+            placeholder="Reply… (r to focus, ⌘/Ctrl+Enter to send)"
             rows={4}
             className="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-white"
           />
