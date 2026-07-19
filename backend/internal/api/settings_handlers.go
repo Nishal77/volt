@@ -15,11 +15,15 @@ type saveAIKeyRequest struct {
 	APIKey   string `json:"api_key" binding:"required"`
 }
 
-func saveAIKeyHandler(pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func saveAIKeyHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req saveAIKeyRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body"})
+			return
+		}
+		encKey, ok := requireUnlocked(c)
+		if !ok {
 			return
 		}
 		if err := db.SaveAIKey(c.Request.Context(), pool, encKey, req.Provider, req.APIKey); err != nil {
@@ -32,8 +36,12 @@ func saveAIKeyHandler(pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
 
 // getAIKeyStatusHandler reports whether a key is configured, never the key
 // itself — it never leaves storage once written.
-func getAIKeyStatusHandler(pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func getAIKeyStatusHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		provider, _, err := db.GetAIKey(c.Request.Context(), pool, encKey)
 		if errors.Is(err, db.ErrNoAIKey) {
 			c.JSON(http.StatusOK, gin.H{"configured": false})

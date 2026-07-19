@@ -55,6 +55,10 @@ export default function ThreadPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "failed_to_load"));
   }, [id]);
 
+  useEffect(() => {
+    if (error === "vault_locked") router.push("/unlock");
+  }, [error, router]);
+
   async function archive() {
     await fetch(`${API_URL}/api/inbox/${id}/archive`, { method: "POST" });
     router.push("/inbox");

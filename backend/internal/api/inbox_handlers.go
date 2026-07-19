@@ -12,8 +12,12 @@ import (
 
 const inboxMaxResults = 25
 
-func listInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func listInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
 		if err != nil {
 			handleGmailError(c, err)
@@ -30,8 +34,12 @@ func listInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin
 	}
 }
 
-func getThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func getThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
 		if err != nil {
 			handleGmailError(c, err)
@@ -48,8 +56,12 @@ func getThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin
 	}
 }
 
-func archiveThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func archiveThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
 		if err != nil {
 			handleGmailError(c, err)
@@ -69,7 +81,7 @@ type setReadRequest struct {
 	Read bool `json:"read"`
 }
 
-func setReadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func setReadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req setReadRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -77,6 +89,10 @@ func setReadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin.H
 			return
 		}
 
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
 		if err != nil {
 			handleGmailError(c, err)
@@ -96,7 +112,7 @@ type replyRequest struct {
 	Body string `json:"body" binding:"required"`
 }
 
-func replyThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) gin.HandlerFunc {
+func replyThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req replyRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -104,6 +120,10 @@ func replyThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte) g
 			return
 		}
 
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
 		if err != nil {
 			handleGmailError(c, err)

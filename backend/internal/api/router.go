@@ -11,9 +11,10 @@ import (
 	"github.com/Nishal77/volt/backend/internal/gmailapi"
 )
 
-// NewRouter wires health, OAuth, and inbox routes. encKey is the decoded
-// AES-256 key used to encrypt the stored Gmail token at rest.
-func NewRouter(pool *pgxpool.Pool, cfg config.Config, encKey []byte) *gin.Engine {
+// NewRouter wires health, vault, OAuth, and inbox routes. The encryption
+// key used for stored credentials lives only in internal/vault's in-memory
+// holder, unlocked via POST /api/vault/unlock — never passed in here.
+func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	r := gin.Default()
 	r.Use(corsMiddleware(cfg.FrontendURL))
 	r.NoRoute(func(c *gin.Context) {
@@ -34,23 +35,28 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config, encKey []byte) *gin.Engine
 
 	oauthCfg := gmailapi.OAuthConfig(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL)
 
+	vaultGroup := r.Group("/api/vault")
+	vaultGroup.GET("/status", vaultStatusHandler(pool))
+	vaultGroup.POST("/setup", vaultSetupHandler(pool))
+	vaultGroup.POST("/unlock", vaultUnlockHandler(pool))
+
 	r.GET("/auth/google", googleLoginHandler(oauthCfg))
-	r.GET("/auth/google/callback", googleCallbackHandler(oauthCfg, pool, encKey, cfg.FrontendURL))
+	r.GET("/auth/google/callback", googleCallbackHandler(oauthCfg, pool, cfg.FrontendURL))
 
 	inbox := r.Group("/api/inbox")
-	inbox.GET("", listInboxHandler(oauthCfg, pool, encKey))
-	inbox.GET("/:id", getThreadHandler(oauthCfg, pool, encKey))
-	inbox.POST("/:id/archive", archiveThreadHandler(oauthCfg, pool, encKey))
-	inbox.POST("/:id/read", setReadHandler(oauthCfg, pool, encKey))
-	inbox.POST("/:id/reply", replyThreadHandler(oauthCfg, pool, encKey))
-	inbox.POST("/:id/summarize", summarizeThreadHandler(oauthCfg, pool, encKey, cfg.PromptsDir))
-	inbox.POST("/:id/draft", draftReplyHandler(oauthCfg, pool, encKey, cfg.PromptsDir))
+	inbox.GET("", listInboxHandler(oauthCfg, pool))
+	inbox.GET("/:id", getThreadHandler(oauthCfg, pool))
+	inbox.POST("/:id/archive", archiveThreadHandler(oauthCfg, pool))
+	inbox.POST("/:id/read", setReadHandler(oauthCfg, pool))
+	inbox.POST("/:id/reply", replyThreadHandler(oauthCfg, pool))
+	inbox.POST("/:id/summarize", summarizeThreadHandler(oauthCfg, pool, cfg.PromptsDir))
+	inbox.POST("/:id/draft", draftReplyHandler(oauthCfg, pool, cfg.PromptsDir))
 
-	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, encKey, cfg.PromptsDir))
+	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
 
 	settings := r.Group("/api/settings")
-	settings.POST("/ai-key", saveAIKeyHandler(pool, encKey))
-	settings.GET("/ai-key", getAIKeyStatusHandler(pool, encKey))
+	settings.POST("/ai-key", saveAIKeyHandler(pool))
+	settings.GET("/ai-key", getAIKeyStatusHandler(pool))
 
 	return r
 }

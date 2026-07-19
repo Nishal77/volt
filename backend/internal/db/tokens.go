@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS ai_summary (
 	thread_id TEXT PRIMARY KEY,
 	summary TEXT NOT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS vault_config (
+	id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+	salt BYTEA NOT NULL,
+	verifier BYTEA NOT NULL
 );`
 
 // EnsureSchema creates the token table if it doesn't exist yet.

@@ -9,6 +9,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/Nishal77/volt/backend/internal/db"
+	"github.com/Nishal77/volt/backend/internal/vault"
 )
 
 // oauthState is a fixed, non-secret string. Single self-hosted instance,
@@ -23,7 +24,7 @@ func googleLoginHandler(cfg *oauth2.Config) gin.HandlerFunc {
 	}
 }
 
-func googleCallbackHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte, frontendURL string) gin.HandlerFunc {
+func googleCallbackHandler(cfg *oauth2.Config, pool *pgxpool.Pool, frontendURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if errParam := c.Query("error"); errParam != "" {
 			c.Redirect(http.StatusFound, frontendURL+"/inbox?error=oauth_denied")
@@ -32,6 +33,11 @@ func googleCallbackHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte
 		code := c.Query("code")
 		if code == "" {
 			c.Redirect(http.StatusFound, frontendURL+"/inbox?error=oauth_failed")
+			return
+		}
+		encKey, err := vault.Key()
+		if err != nil {
+			c.Redirect(http.StatusFound, frontendURL+"/unlock?error=vault_locked")
 			return
 		}
 

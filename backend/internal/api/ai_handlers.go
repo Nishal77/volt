@@ -40,7 +40,7 @@ func threadText(t *gmailapi.ThreadDetail) string {
 	return b.String()
 }
 
-func summarizeThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte, promptsDir string) gin.HandlerFunc {
+func summarizeThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		threadID := c.Param("id")
 
@@ -49,6 +49,10 @@ func summarizeThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byt
 			return
 		}
 
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		aiCfg, ok := loadAIConfig(c, pool, encKey)
 		if !ok {
 			return
@@ -80,8 +84,12 @@ func summarizeThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byt
 	}
 }
 
-func draftReplyHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte, promptsDir string) gin.HandlerFunc {
+func draftReplyHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		aiCfg, ok := loadAIConfig(c, pool, encKey)
 		if !ok {
 			return
@@ -112,7 +120,7 @@ func draftReplyHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte, pr
 	}
 }
 
-func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte, promptsDir string) gin.HandlerFunc {
+func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
@@ -120,6 +128,10 @@ func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, encKey []byte, p
 			return
 		}
 
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
 		aiCfg, ok := loadAIConfig(c, pool, encKey)
 		if !ok {
 			return

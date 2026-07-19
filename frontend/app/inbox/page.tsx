@@ -70,6 +70,10 @@ function InboxContent() {
     load();
   }, [oauthError]);
 
+  useEffect(() => {
+    if (error === "vault_locked") router.push("/unlock");
+  }, [error, router]);
+
   function archive(threadId: string) {
     fetch(`${API_URL}/api/inbox/${threadId}/archive`, { method: "POST" });
     setMessages((prev) => (prev ? prev.filter((m) => m.thread_id !== threadId) : prev));
