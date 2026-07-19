@@ -1,8 +1,4 @@
 .DS_Store
-claude.md
-docs/*
-!docs/prompts
-docs/Volt_PRD.pdf
 .gstack/
 deploy/.env
 .playwright-mcp/
