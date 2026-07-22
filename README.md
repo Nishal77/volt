@@ -1,10 +1,27 @@
 # Volt
 
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 Open-source, self-hostable, keyboard-first Gmail client with BYO-AI-key
 features and a native MCP server.
 
-Full quickstart, screenshots, and badges land in Phase 8 (Launch) —
-this README currently covers what Phase 5 requires: the security model.
+Your inbox, your server, your AI key. Volt is free, self-hosted, and
+encrypts your credentials with a key only you hold — see [Security](#security)
+below.
+
+Screenshots/GIF still pending — added once Phase 7's real self-host test
+is done and there's something worth showing off.
+
+## Quickstart
+
+```bash
+git clone https://github.com/your-repo/volt && cd volt/deploy
+cp .env.example .env   # add your own Google OAuth client
+docker compose up --build
+```
+
+Full walkthrough: [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
+Something broke? [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ## Security
 
@@ -25,6 +42,13 @@ mechanism if you lose the passphrase, by design.
 
 Details: [`docs/decisions/0003-zero-knowledge-vault.md`](docs/decisions/0003-zero-knowledge-vault.md).
 
+## MCP Server
+
+Point Claude Code or Cursor at your own running instance and ask it to
+read, search, or draft in your real inbox. Sending always stays a human
+clicking a button — no send tool exists. Setup: [`mcp-server/README.md`](mcp-server/README.md).
+
 ## Self-hosting
 
-See `deploy/docker-compose.yml` and `deploy/.env.example`.
+See [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md), or
+`deploy/docker-compose.yml` / `deploy/.env.example` directly.
