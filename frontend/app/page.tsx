@@ -6,6 +6,12 @@ const QUICKSTART = `git clone https://github.com/your-repo/volt && cd volt/deplo
 cp .env.example .env   # add your own Google OAuth client
 docker compose up --build`;
 
+const MOCK_INBOX = [
+  { from: "Stripe", subject: "Unusual sign-in detected", snippet: "We noticed a new sign-in to your account from a new device…", unread: true },
+  { from: "GitHub", subject: "[volt] New star from a contributor", snippet: "Someone just starred your repository nishal77/volt", unread: true },
+  { from: "Linear", subject: "Weekly digest — 3 issues closed", snippet: "Here's what shipped on your team this week…", unread: false },
+];
+
 const FEATURES = [
   {
     title: "Keyboard-first, start to finish",
@@ -116,18 +122,61 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Layered product-UI mockup */}
-        <div className="relative mt-24 max-w-2xl mx-auto hidden sm:block">
-          <div className="rounded-xl bg-surface-dark-elevated border border-white/10 p-8 rotate-[-1.5deg] shadow-2xl">
-            <div className="flex gap-3 mb-4">
-              <div className="w-3 h-3 rounded-full bg-white/20" />
-              <div className="w-3 h-3 rounded-full bg-white/20" />
-              <div className="w-3 h-3 rounded-full bg-white/20" />
+        {/* Product mockup — generic three-pane email layout (sidebar / list / reading pane),
+            structurally the same shape as Gmail or Superhuman, styled entirely in Volt's own
+            tokens — no borrowed branding, colors, or logos. */}
+        <div className="relative mt-24 max-w-4xl mx-auto hidden md:block">
+          <div className="rounded-xl bg-black border border-white/10 shadow-2xl overflow-hidden rotate-[-0.5deg] flex h-[380px]">
+            {/* Sidebar */}
+            <div className="w-48 shrink-0 border-r border-white/10 p-4 flex flex-col gap-1">
+              <div className="mb-4 h-9 rounded-lg bg-primary text-white text-sm font-semibold flex items-center justify-center">
+                Compose
+              </div>
+              {["Inbox", "Snippets", "Settings"].map((label, i) => (
+                <div
+                  key={label}
+                  className={`px-3 py-2 rounded-lg text-sm ${i === 0 ? "bg-white/10 text-white font-medium" : "text-gray-400"}`}
+                >
+                  {label}
+                </div>
+              ))}
             </div>
-            <div className="space-y-3">
-              <div className="h-3 w-2/3 rounded bg-white/15" />
-              <div className="h-3 w-1/2 rounded bg-white/10" />
-              <div className="h-3 w-3/4 rounded bg-white/10" />
+
+            {/* List pane */}
+            <div className="w-72 shrink-0 border-r border-white/10 flex flex-col">
+              <div className="px-4 pt-4 pb-3 border-b border-white/10">
+                <div className="rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm text-gray-500">
+                  Search inbox… (/ to focus)
+                </div>
+              </div>
+              <ul className="divide-y divide-white/10 overflow-hidden">
+                {MOCK_INBOX.map((m, i) => (
+                  <li key={m.from} className={`px-4 py-3 ${i === 0 ? "bg-white/10" : ""}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={m.unread ? "font-semibold text-white" : "text-gray-300"}>
+                        {m.from}
+                      </span>
+                      {m.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-[#c2ee2c]" />}
+                    </div>
+                    <div className={m.unread ? "font-semibold text-white" : "text-gray-200"}>{m.subject}</div>
+                    <div className="text-sm text-gray-500 truncate">{m.snippet}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Reading pane */}
+            <div className="flex-1 p-6">
+              <div className="text-lg font-semibold text-white">{MOCK_INBOX[0].subject}</div>
+              <div className="text-sm text-gray-500 mt-1">{MOCK_INBOX[0].from}</div>
+              <div className="mt-6 space-y-3">
+                <div className="h-2.5 w-full rounded bg-white/10" />
+                <div className="h-2.5 w-5/6 rounded bg-white/10" />
+                <div className="h-2.5 w-2/3 rounded bg-white/10" />
+              </div>
+              <div className="mt-6 inline-flex items-center h-9 px-4 rounded-pill bg-primary text-white text-sm font-semibold">
+                Draft reply
+              </div>
             </div>
           </div>
           <div className="absolute -bottom-8 -right-6 w-56 rounded-xl bg-surface-dark-elevated border border-white/10 p-5 rotate-[2deg] shadow-2xl">
