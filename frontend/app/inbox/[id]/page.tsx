@@ -108,6 +108,15 @@ export default function ThreadPage() {
       })
       .then(setThread)
       .catch((err) => setError(err instanceof Error ? err.message : "failed_to_load"));
+
+    // Viewing a thread marks it read on Gmail — the inbox list re-fetches
+    // fresh on every mount, so it lands under "Previously seen" the moment
+    // you go back, no separate client-side bookkeeping needed.
+    fetch(`${API_URL}/api/inbox/${id}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ read: true }),
+    }).catch(() => {});
   }, [id]);
 
   useEffect(() => {

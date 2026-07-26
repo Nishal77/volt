@@ -134,7 +134,7 @@ function CommandPalette({ commands, onClose }: { commands: Command[]; onClose: (
               onMouseEnter={() => setActive(i)}
               onClick={() => run(c)}
               className={`w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl text-[14px] font-medium text-[#1a1a1a] transition-colors ${
-                i === active ? "bg-[#4f46e5]/[0.08]" : ""
+                i === active ? "bg-[#000]/[0.04]" : ""
               }`}
             >
               <CommandIcon />

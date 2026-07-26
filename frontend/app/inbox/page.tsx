@@ -6,7 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCommandPalette, Overlay, KeyHint, type Command } from "../components/CommandPalette";
 import { AiChat, AiChatToggle } from "../components/AiChat";
 import { useReplyLater, SelectionToolbar, ReplyLaterStack } from "../components/ReplyLater";
+import { SenderAvatar } from "../components/SenderAvatar";
 import { isTypingTarget } from "../lib/snippets";
+import { senderName } from "../lib/avatar";
 
 type Message = {
   thread_id: string;
@@ -20,29 +22,6 @@ type Message = {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 const NEW_FOR_YOU_LIMIT = 7;
-
-const AVATAR_FG = "#111214";
-const AVATAR_COLORS = [
-  { bg: "#b8a6ff", fg: AVATAR_FG },
-  { bg: "#7fd4a3", fg: AVATAR_FG },
-  { bg: "#ffa8bd", fg: AVATAR_FG },
-  { bg: "#7fc4e0", fg: AVATAR_FG },
-  { bg: "#ffc373", fg: AVATAR_FG },
-  { bg: "#8de0bb", fg: AVATAR_FG },
-];
-
-function senderName(from: string): string {
-  const match = from.match(/^"?([^"<]+)"?\s*<?/);
-  const name = match?.[1]?.trim();
-  return name && name.length > 0 ? name : from.replace(/<.*>/, "").trim();
-}
-
-function initials(from: string): string {
-  const name = senderName(from);
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
 
 const HTML_ENTITIES: Record<string, string> = {
   amp: "&",
@@ -59,62 +38,6 @@ function decodeEntities(text: string): string {
     if (code[0] === "#") return String.fromCharCode(Number(code.slice(1)));
     return HTML_ENTITIES[code.toLowerCase()] ?? match;
   });
-}
-
-function emailAddress(from: string): string {
-  const match = from.match(/<([^>]+)>/);
-  return (match ? match[1] : from).trim().toLowerCase();
-}
-
-// Gravatar accepts a SHA-256 hash of the email (their newer, non-MD5
-// option) — native Web Crypto covers this, no hashing library needed.
-// d=404 makes it 404 instead of a default silhouette when no photo is
-// registered, so <img onError> can cleanly fall back to initials.
-const gravatarCache = new Map<string, Promise<string>>();
-
-async function gravatarURL(email: string): Promise<string> {
-  if (!gravatarCache.has(email)) {
-    const promise = (async () => {
-      const bytes = new TextEncoder().encode(email);
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-      return `https://www.gravatar.com/avatar/${hex}?d=404&s=80`;
-    })();
-    gravatarCache.set(email, promise);
-  }
-  return gravatarCache.get(email)!;
-}
-
-function avatarColor(from: string) {
-  let hash = 0;
-  for (let i = 0; i < from.length; i++) hash = (hash * 31 + from.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-// BIMI is a real per-domain sender logo (a DNS TXT record verified brands
-// publish, e.g. Adzuna) — separate from Gravatar's per-person photo, and
-// resolved server-side since browsers can't do DNS lookups.
-const bimiCache = new Map<string, Promise<string | null>>();
-
-async function bimiLogoURL(domain: string): Promise<string | null> {
-  if (!bimiCache.has(domain)) {
-    const promise = fetch(`${API_URL}/api/avatar?domain=${encodeURIComponent(domain)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data?.url ?? null)
-      .catch(() => null);
-    bimiCache.set(domain, promise);
-  }
-  return bimiCache.get(domain)!;
-}
-
-// Tries the sender's brand logo (BIMI) first, then their personal photo
-// (Gravatar) — first one that actually exists wins; <img onError> in Row
-// advances through whatever came back.
-async function avatarCandidates(from: string): Promise<string[]> {
-  const email = emailAddress(from);
-  const domain = email.split("@")[1] ?? "";
-  const [bimi, gravatar] = await Promise.all([bimiLogoURL(domain), gravatarURL(email)]);
-  return [bimi, gravatar].filter((u): u is string => Boolean(u));
 }
 
 const CONNECT_ERROR_MESSAGES: Record<string, string> = {
@@ -137,25 +60,6 @@ function Row({
   onHover: () => void;
   onToggleCheck: () => void;
 }) {
-  const color = avatarColor(m.from);
-  const [candidates, setCandidates] = useState<string[]>([]);
-  const [candidateIndex, setCandidateIndex] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setCandidates([]);
-    setCandidateIndex(0);
-    avatarCandidates(m.from).then((urls) => {
-      if (!cancelled) setCandidates(urls);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [m.from]);
-
-  const avatarSrc = candidates[candidateIndex];
-  const showPhoto = Boolean(avatarSrc);
-
   return (
     <Link
       href={`/inbox/${m.thread_id}`}
@@ -165,7 +69,7 @@ function Row({
       }`}
     >
       {m.unread ? (
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5a623] shadow-[0_0_0_3px_rgba(245,166,35,0.15)]" />
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f43f5e]" />
       ) : (
         <span className="h-1.5 w-1.5 shrink-0" />
       )}
@@ -177,22 +81,14 @@ function Row({
           onToggleCheck();
         }}
         aria-label={isChecked ? "Deselect" : "Select"}
-        className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-[13px] font-semibold ring-1 ring-black/[0.04] relative overflow-hidden"
-        style={showPhoto ? undefined : { backgroundColor: color.bg, color: color.fg }}
+        className="h-10 w-10 shrink-0 relative"
       >
-        {showPhoto ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatarSrc}
-            alt=""
-            className={`absolute inset-0 h-full w-full object-cover ${isChecked ? "opacity-0" : "opacity-100 group-hover:opacity-0 transition-opacity"}`}
-            onError={() => setCandidateIndex((i) => i + 1)}
-          />
-        ) : (
-          <span className={isChecked ? "opacity-0" : "opacity-100 group-hover:opacity-0 transition-opacity"}>
-            {initials(m.from)}
-          </span>
-        )}
+        <SenderAvatar
+          from={m.from}
+          size={40}
+          className="ring-1 ring-black/[0.04]"
+          contentClassName={isChecked ? "opacity-0" : "opacity-100 group-hover:opacity-0 transition-opacity"}
+        />
         <span
           className={`absolute inset-0 rounded-full flex items-center justify-center bg-[#4f46e5] text-white transition-opacity ${
             isChecked ? "opacity-100" : "opacity-0 group-hover:opacity-100"
@@ -212,7 +108,7 @@ function Row({
         </div>
         <div className="truncate text-[13.5px] text-gray-500 mt-0.5">
           <span className={m.unread ? "text-gray-700" : ""}>{senderName(m.from)}</span>
-          <span className="text-gray-300 mx-1">—</span>
+          <span className="text-gray-400">, </span>
           {decodeEntities(m.snippet)}
         </div>
       </div>
@@ -404,7 +300,7 @@ function InboxContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white text-[#1a1a1a]">
         {palette}
-        Gmail is rate-limiting requests right now — try again in a minute.
+        Gmail is rate-limiting requests right now, try again in a minute.
       </div>
     );
   }
@@ -461,9 +357,9 @@ function InboxContent() {
               Clear
             </button>
           )}
-          <Link href="/settings" className="text-sm text-gray-400 hover:text-[#1a1a1a] whitespace-nowrap transition-colors">
+          {/* <Link href="/settings" className="text-sm text-gray-400 hover:text-[#1a1a1a] whitespace-nowrap transition-colors">
             AI settings
-          </Link>
+          </Link> */}
           <AiChatToggle open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
         </div>
 
@@ -484,9 +380,9 @@ function InboxContent() {
               <div className="flex items-center gap-3 px-1 pb-4">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#4f46e5]" />
                 <span className="text-[12px] font-bold tracking-tight text-gray-600">NEW FOR YOU</span>
-                <span className="h-px flex-1 bg-gradient-to-r from-black/[0.08] to-transparent" />
+                <span className="h-px flex-1 bg-black/10" />
                 <button type="button" className="text-[13px] font-medium text-[#4f46e5] hover:text-[#3c34c9] transition-colors">
-                  Read Together
+                  View all Mails
                 </button>
               </div>
               <div className="divide-y divide-black/[0.045]">
@@ -568,7 +464,6 @@ function InboxContent() {
             )}
             {!searching &&
               searchResults?.map((m) => {
-                const color = avatarColor(m.from);
                 return (
                   <button
                     key={m.thread_id}
@@ -579,12 +474,7 @@ function InboxContent() {
                     }}
                     className="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
                   >
-                    <span
-                      className="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-[12px] font-semibold"
-                      style={{ backgroundColor: color.bg, color: color.fg }}
-                    >
-                      {initials(m.from)}
-                    </span>
+                    <SenderAvatar from={m.from} size={32} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[14px] font-medium text-[#1a1a1a]">
                         {decodeEntities(m.subject) || "(no subject)"}
