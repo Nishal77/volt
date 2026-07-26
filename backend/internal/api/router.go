@@ -55,6 +55,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 
 	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
 	r.POST("/api/chat", chatHandler(pool, cfg.PromptsDir))
+	r.GET("/api/avatar", avatarHandler)
 
 	settings := r.Group("/api/settings")
 	settings.POST("/ai-key", saveAIKeyHandler(pool))

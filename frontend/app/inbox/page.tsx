@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCommandPalette, type Command } from "../components/CommandPalette";
 import { AiChat, AiChatToggle } from "../components/AiChat";
+import { useReplyLater, SelectionToolbar, ReplyLaterStack } from "../components/ReplyLater";
 import { isTypingTarget } from "../lib/snippets";
 
 type Message = {
@@ -20,13 +21,14 @@ type Message = {
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 const NEW_FOR_YOU_LIMIT = 7;
 
+const AVATAR_FG = "#111214";
 const AVATAR_COLORS = [
-  { bg: "#c9b8ff", fg: "#3d2e8c" },
-  { bg: "#a3e0b8", fg: "#1f6b3a" },
-  { bg: "#ffc2d1", fg: "#8c2e4e" },
-  { bg: "#a8d8e8", fg: "#1f5f75" },
-  { bg: "#ffd8a8", fg: "#8c5a1f" },
-  { bg: "#c2f0d8", fg: "#1f7a5c" },
+  { bg: "#b8a6ff", fg: AVATAR_FG },
+  { bg: "#7fd4a3", fg: AVATAR_FG },
+  { bg: "#ffa8bd", fg: AVATAR_FG },
+  { bg: "#7fc4e0", fg: AVATAR_FG },
+  { bg: "#ffc373", fg: AVATAR_FG },
+  { bg: "#8de0bb", fg: AVATAR_FG },
 ];
 
 function senderName(from: string): string {
@@ -59,10 +61,60 @@ function decodeEntities(text: string): string {
   });
 }
 
+function emailAddress(from: string): string {
+  const match = from.match(/<([^>]+)>/);
+  return (match ? match[1] : from).trim().toLowerCase();
+}
+
+// Gravatar accepts a SHA-256 hash of the email (their newer, non-MD5
+// option) — native Web Crypto covers this, no hashing library needed.
+// d=404 makes it 404 instead of a default silhouette when no photo is
+// registered, so <img onError> can cleanly fall back to initials.
+const gravatarCache = new Map<string, Promise<string>>();
+
+async function gravatarURL(email: string): Promise<string> {
+  if (!gravatarCache.has(email)) {
+    const promise = (async () => {
+      const bytes = new TextEncoder().encode(email);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      return `https://www.gravatar.com/avatar/${hex}?d=404&s=80`;
+    })();
+    gravatarCache.set(email, promise);
+  }
+  return gravatarCache.get(email)!;
+}
+
 function avatarColor(from: string) {
   let hash = 0;
   for (let i = 0; i < from.length; i++) hash = (hash * 31 + from.charCodeAt(i)) | 0;
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// BIMI is a real per-domain sender logo (a DNS TXT record verified brands
+// publish, e.g. Adzuna) — separate from Gravatar's per-person photo, and
+// resolved server-side since browsers can't do DNS lookups.
+const bimiCache = new Map<string, Promise<string | null>>();
+
+async function bimiLogoURL(domain: string): Promise<string | null> {
+  if (!bimiCache.has(domain)) {
+    const promise = fetch(`${API_URL}/api/avatar?domain=${encodeURIComponent(domain)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data?.url ?? null)
+      .catch(() => null);
+    bimiCache.set(domain, promise);
+  }
+  return bimiCache.get(domain)!;
+}
+
+// Tries the sender's brand logo (BIMI) first, then their personal photo
+// (Gravatar) — first one that actually exists wins; <img onError> in Row
+// advances through whatever came back.
+async function avatarCandidates(from: string): Promise<string[]> {
+  const email = emailAddress(from);
+  const domain = email.split("@")[1] ?? "";
+  const [bimi, gravatar] = await Promise.all([bimiLogoURL(domain), gravatarURL(email)]);
+  return [bimi, gravatar].filter((u): u is string => Boolean(u));
 }
 
 const CONNECT_ERROR_MESSAGES: Record<string, string> = {
@@ -71,6 +123,103 @@ const CONNECT_ERROR_MESSAGES: Record<string, string> = {
   oauth_failed: "Something went wrong connecting Gmail. Try again.",
   save_failed: "Couldn't save your connection. Try again.",
 };
+
+function Row({
+  m,
+  isSelected,
+  isChecked,
+  onHover,
+  onToggleCheck,
+}: {
+  m: Message;
+  isSelected: boolean;
+  isChecked: boolean;
+  onHover: () => void;
+  onToggleCheck: () => void;
+}) {
+  const color = avatarColor(m.from);
+  const [candidates, setCandidates] = useState<string[]>([]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCandidates([]);
+    setCandidateIndex(0);
+    avatarCandidates(m.from).then((urls) => {
+      if (!cancelled) setCandidates(urls);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [m.from]);
+
+  const avatarSrc = candidates[candidateIndex];
+  const showPhoto = Boolean(avatarSrc);
+
+  return (
+    <Link
+      href={`/inbox/${m.thread_id}`}
+      onMouseEnter={onHover}
+      className={`group flex items-center gap-4 -mx-3 px-3 py-4 rounded-lg transition-colors duration-150 ${
+        isSelected ? "bg-gray-100" : "hover:bg-gray-100"
+      }`}
+    >
+      {m.unread ? (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5a623] shadow-[0_0_0_3px_rgba(245,166,35,0.15)]" />
+      ) : (
+        <span className="h-1.5 w-1.5 shrink-0" />
+      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleCheck();
+        }}
+        aria-label={isChecked ? "Deselect" : "Select"}
+        className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-[13px] font-semibold ring-1 ring-black/[0.04] relative overflow-hidden"
+        style={showPhoto ? undefined : { backgroundColor: color.bg, color: color.fg }}
+      >
+        {showPhoto ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarSrc}
+            alt=""
+            className={`absolute inset-0 h-full w-full object-cover ${isChecked ? "opacity-0" : "opacity-100 group-hover:opacity-0 transition-opacity"}`}
+            onError={() => setCandidateIndex((i) => i + 1)}
+          />
+        ) : (
+          <span className={isChecked ? "opacity-0" : "opacity-100 group-hover:opacity-0 transition-opacity"}>
+            {initials(m.from)}
+          </span>
+        )}
+        <span
+          className={`absolute inset-0 rounded-full flex items-center justify-center bg-[#4f46e5] text-white transition-opacity ${
+            isChecked ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          {isChecked ? "✓" : ""}
+        </span>
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <span className={`truncate text-[17px] tracking-tight font-semibold ${m.unread ? "text-[#111214]" : "text-[#5a5d64]"}`}>
+            {decodeEntities(m.subject) || "(no subject)"}
+          </span>
+          {m.message_count > 1 && (
+            <span className="text-[12.5px] font-medium text-gray-400 shrink-0">({m.message_count})</span>
+          )}
+        </div>
+        <div className="truncate text-[13.5px] text-gray-500 mt-0.5">
+          <span className={m.unread ? "text-gray-700" : ""}>{senderName(m.from)}</span>
+          <span className="text-gray-300 mx-1">—</span>
+          {decodeEntities(m.snippet)}
+        </div>
+      </div>
+      <span className="text-[13px] text-gray-400 shrink-0 pl-4 tabular-nums">{m.date}</span>
+    </Link>
+  );
+}
 
 function ConnectGmail({ reason }: { reason?: string }) {
   const message = reason ? CONNECT_ERROR_MESSAGES[reason] : undefined;
@@ -131,7 +280,27 @@ function InboxContent() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [showAllUnread, setShowAllUnread] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const replyLater = useReplyLater();
   const searchRef = useRef<HTMLInputElement>(null);
+
+  function toggleChecked(threadId: string) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(threadId)) next.delete(threadId);
+      else next.add(threadId);
+      return next;
+    });
+  }
+
+  function moveCheckedToReplyLater() {
+    if (!messages) return;
+    const entries = messages
+      .filter((m) => checkedIds.has(m.thread_id))
+      .map((m) => ({ thread_id: m.thread_id, subject: m.subject, from: m.from }));
+    replyLater.add(entries);
+    setCheckedIds(new Set());
+  }
 
   function load() {
     fetch(`${API_URL}/api/inbox`)
@@ -262,49 +431,6 @@ function InboxContent() {
     return ordered.indexOf(m);
   }
 
-  function Row({ m }: { m: Message }) {
-    const idx = rowIndex(m);
-    const color = avatarColor(m.from);
-    const isSelected = idx === selected;
-    return (
-      <Link
-        href={`/inbox/${m.thread_id}`}
-        onMouseEnter={() => setSelected(idx)}
-        className={`flex items-center gap-4 -mx-3 px-3 py-4 rounded-lg transition-colors duration-150 ${
-          isSelected ? "bg-gray-100" : "hover:bg-gray-100"
-        }`}
-      >
-        {m.unread ? (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5a623] shadow-[0_0_0_3px_rgba(245,166,35,0.15)]" />
-        ) : (
-          <span className="h-1.5 w-1.5 shrink-0" />
-        )}
-        <span
-          className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-[13px] font-semibold ring-1 ring-black/[0.04]"
-          style={{ backgroundColor: color.bg, color: color.fg }}
-        >
-          {initials(m.from)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-1.5">
-            <span className={`truncate text-[15px] tracking-[-0.01em] ${m.unread ? "font-semibold text-[#111214]" : "font-medium text-[#3a3d44]"}`}>
-              {decodeEntities(m.subject) || "(no subject)"}
-            </span>
-            {m.message_count > 1 && (
-              <span className="text-[12.5px] font-medium text-gray-400 shrink-0">({m.message_count})</span>
-            )}
-          </div>
-          <div className="truncate text-[13.5px] text-gray-500 mt-0.5">
-            <span className={m.unread ? "text-gray-700" : ""}>{senderName(m.from)}</span>
-            <span className="text-gray-300 mx-1">—</span>
-            {decodeEntities(m.snippet)}
-          </div>
-        </div>
-        <span className="text-[13px] text-gray-400 shrink-0 pl-4 tabular-nums">{m.date}</span>
-      </Link>
-    );
-  }
-
   return (
     <div className="h-screen overflow-hidden bg-white text-[#1a1a1a] flex">
       {palette}
@@ -347,6 +473,11 @@ function InboxContent() {
         )}
 
         <div className="mt-8 pb-20">
+          <SelectionToolbar
+            count={checkedIds.size}
+            onReplyLater={moveCheckedToReplyLater}
+            onClear={() => setCheckedIds(new Set())}
+          />
           {ordered.length === 0 && (
             <div className="px-6 py-24 text-center text-gray-400 text-[15px]">
               {searchResults ? "No matches." : "Inbox zero."}
@@ -365,7 +496,14 @@ function InboxContent() {
               </div>
               <div className="divide-y divide-black/[0.045]">
                 {unreadItems.map((m) => (
-                  <Row key={m.thread_id} m={m} />
+                  <Row
+                    key={m.thread_id}
+                    m={m}
+                    isSelected={rowIndex(m) === selected}
+                    isChecked={checkedIds.has(m.thread_id)}
+                    onHover={() => setSelected(rowIndex(m))}
+                    onToggleCheck={() => toggleChecked(m.thread_id)}
+                  />
                 ))}
               </div>
               {hiddenUnreadCount > 0 && (
@@ -389,7 +527,14 @@ function InboxContent() {
               </div>
               <div className="divide-y divide-black/[0.045]">
                 {readItems.map((m) => (
-                  <Row key={m.thread_id} m={m} />
+                  <Row
+                    key={m.thread_id}
+                    m={m}
+                    isSelected={rowIndex(m) === selected}
+                    isChecked={checkedIds.has(m.thread_id)}
+                    onHover={() => setSelected(rowIndex(m))}
+                    onToggleCheck={() => toggleChecked(m.thread_id)}
+                  />
                 ))}
               </div>
             </div>
@@ -399,6 +544,7 @@ function InboxContent() {
       </div>
 
       <AiChat open={chatOpen} onClose={() => setChatOpen(false)} />
+      <ReplyLaterStack items={replyLater.items} onRemove={replyLater.remove} />
     </div>
   );
 }
