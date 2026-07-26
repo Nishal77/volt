@@ -18,6 +18,7 @@ type Message = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const NEW_FOR_YOU_LIMIT = 7;
 
 const AVATAR_COLORS = [
   { bg: "#c9b8ff", fg: "#3d2e8c" },
@@ -129,6 +130,7 @@ function InboxContent() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [showAllUnread, setShowAllUnread] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -250,8 +252,10 @@ function InboxContent() {
   }
 
   const visible = searchResults ?? messages;
-  const unreadItems = visible.filter((m) => m.unread);
+  const allUnread = visible.filter((m) => m.unread);
   const readItems = visible.filter((m) => !m.unread);
+  const unreadItems = showAllUnread ? allUnread : allUnread.slice(0, NEW_FOR_YOU_LIMIT);
+  const hiddenUnreadCount = allUnread.length - unreadItems.length;
   const ordered = [...unreadItems, ...readItems];
 
   function rowIndex(m: Message) {
@@ -364,6 +368,15 @@ function InboxContent() {
                   <Row key={m.thread_id} m={m} />
                 ))}
               </div>
+              {hiddenUnreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllUnread(true)}
+                  className="w-full text-center text-[13px] font-medium text-gray-400 hover:text-[#4f46e5] py-3 transition-colors"
+                >
+                  {hiddenUnreadCount} more
+                </button>
+              )}
             </div>
           )}
 
