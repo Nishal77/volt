@@ -90,6 +90,23 @@ func vaultUnlockHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	}
 }
 
+// vaultResetHandler wipes the vault config and every credential encrypted
+// under the old key, so a forgotten passphrase can't lock someone out of
+// their own instance forever. There's deliberately no passphrase check
+// here — if you knew it, you wouldn't need this. The tradeoff is explicit:
+// this destroys stored credentials rather than recovering them, because
+// zero-knowledge means the server has no way to do the latter.
+func vaultResetHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := db.ResetVault(c.Request.Context(), pool); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "reset_failed"})
+			return
+		}
+		vault.Lock()
+		c.JSON(http.StatusOK, gin.H{"status": "reset"})
+	}
+}
+
 // requireUnlocked returns the vault key or writes a 423 Locked response.
 // Every handler that touches an encrypted credential calls this first.
 func requireUnlocked(c *gin.Context) ([]byte, bool) {

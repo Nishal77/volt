@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -59,11 +60,13 @@ func IsRateLimited(err error) bool {
 }
 
 type MessageSummary struct {
-	ThreadID string `json:"thread_id"`
-	Subject  string `json:"subject"`
-	From     string `json:"from"`
-	Snippet  string `json:"snippet"`
-	Unread   bool   `json:"unread"`
+	ThreadID     string `json:"thread_id"`
+	Subject      string `json:"subject"`
+	From         string `json:"from"`
+	Snippet      string `json:"snippet"`
+	Unread       bool   `json:"unread"`
+	Date         string `json:"date"`
+	MessageCount int    `json:"message_count"`
 }
 
 type MessageDetail struct {
@@ -95,7 +98,7 @@ func ListInbox(ctx context.Context, svc *gmail.Service, maxResults int64) ([]Mes
 	summaries := make([]MessageSummary, 0, len(list.Threads))
 	for _, t := range list.Threads {
 		full, err := svc.Users.Threads.Get("me", t.Id).
-			Format("metadata").MetadataHeaders("Subject", "From").Context(ctx).Do()
+			Format("metadata").MetadataHeaders("Subject", "From", "Date").Context(ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("gmailapi: get thread %s: %w", t.Id, err)
 		}
@@ -104,11 +107,13 @@ func ListInbox(ctx context.Context, svc *gmail.Service, maxResults int64) ([]Mes
 		}
 		last := full.Messages[len(full.Messages)-1]
 		summaries = append(summaries, MessageSummary{
-			ThreadID: t.Id,
-			Subject:  header(last, "Subject"),
-			From:     header(last, "From"),
-			Snippet:  t.Snippet,
-			Unread:   hasLabel(last.LabelIds, "UNREAD"),
+			ThreadID:     t.Id,
+			Subject:      header(last, "Subject"),
+			From:         header(last, "From"),
+			Snippet:      t.Snippet,
+			Unread:       hasLabel(last.LabelIds, "UNREAD"),
+			Date:         formatDate(header(last, "Date")),
+			MessageCount: len(full.Messages),
 		})
 	}
 	return summaries, nil
@@ -211,6 +216,16 @@ func header(msg *gmail.Message, name string) string {
 		}
 	}
 	return ""
+}
+
+// formatDate turns a raw RFC 2822 "Date" header into a short display form
+// ("Jan 2"), falling back to the raw value if it can't be parsed.
+func formatDate(raw string) string {
+	t, err := mail.ParseDate(raw)
+	if err != nil {
+		return raw
+	}
+	return t.Format("Jan 2")
 }
 
 func hasLabel(labels []string, target string) bool {

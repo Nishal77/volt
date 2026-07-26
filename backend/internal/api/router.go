@@ -39,6 +39,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	vaultGroup.GET("/status", vaultStatusHandler(pool))
 	vaultGroup.POST("/setup", vaultSetupHandler(pool))
 	vaultGroup.POST("/unlock", vaultUnlockHandler(pool))
+	vaultGroup.POST("/reset", vaultResetHandler(pool))
 
 	r.GET("/auth/google", googleLoginHandler(oauthCfg))
 	r.GET("/auth/google/callback", googleCallbackHandler(oauthCfg, pool, cfg.FrontendURL))
@@ -53,6 +54,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	inbox.POST("/:id/draft", draftReplyHandler(oauthCfg, pool, cfg.PromptsDir))
 
 	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
+	r.POST("/api/chat", chatHandler(pool, cfg.PromptsDir))
 
 	settings := r.Group("/api/settings")
 	settings.POST("/ai-key", saveAIKeyHandler(pool))

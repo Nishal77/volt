@@ -37,3 +37,17 @@ func GetVaultConfig(ctx context.Context, pool *pgxpool.Pool) (salt, verifier []b
 	}
 	return salt, verifier, nil
 }
+
+// ResetVault deletes the vault config and every credential that was
+// encrypted under the old key — a forgotten passphrase has no other way
+// back in, by design (ADR 0003: zero-knowledge means the server can't
+// recover it either). This is the only way out of that dead end: start
+// over, not decrypt around it.
+func ResetVault(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		TRUNCATE vault_config, gmail_token, ai_key, ai_summary`)
+	if err != nil {
+		return fmt.Errorf("db: reset vault: %w", err)
+	}
+	return nil
+}

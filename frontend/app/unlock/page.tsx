@@ -12,6 +12,7 @@ export default function UnlockPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   useEffect(() => {
     fetch(`${API_URL}/api/vault/status`)
@@ -45,6 +46,20 @@ export default function UnlockPage() {
         return;
       }
       router.push("/inbox");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetVault() {
+    setBusy(true);
+    setError(null);
+    try {
+      await fetch(`${API_URL}/api/vault/reset`, { method: "POST" });
+      setSetup(false);
+      setPassphrase("");
+      setConfirm("");
+      setConfirmingReset(false);
     } finally {
       setBusy(false);
     }
@@ -88,6 +103,43 @@ export default function UnlockPage() {
         >
           {busy ? "Working…" : setup ? "Unlock" : "Create vault"}
         </button>
+
+        {setup && !confirmingReset && (
+          <button
+            type="button"
+            onClick={() => setConfirmingReset(true)}
+            className="w-full mt-3 text-xs text-gray-500 hover:text-gray-300"
+          >
+            Forgot passphrase?
+          </button>
+        )}
+
+        {setup && confirmingReset && (
+          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/5 p-3">
+            <p className="text-xs text-red-300 mb-3">
+              There&apos;s no recovery — Volt never stores your passphrase. Resetting
+              deletes your stored Gmail connection and AI key, and lets you set a new
+              passphrase. You&apos;ll need to reconnect Gmail after.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={resetVault}
+                disabled={busy}
+                className="flex-1 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-60 text-xs font-medium"
+              >
+                {busy ? "Resetting…" : "Reset vault"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingReset(false)}
+                className="flex-1 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   );

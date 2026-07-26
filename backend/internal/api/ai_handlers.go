@@ -169,6 +169,44 @@ func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir strin
 	}
 }
 
+// chatHandler is a stateless single-turn "ask anything" endpoint — no
+// conversation history is threaded through the model. The frontend keeps
+// the message list for display; each send is independent.
+// ponytail: no multi-turn context, add if replies need to reference
+// earlier turns in the same chat.
+func chatHandler(pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Message string `json:"message" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body"})
+			return
+		}
+
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
+		aiCfg, ok := loadAIConfig(c, pool, encKey)
+		if !ok {
+			return
+		}
+
+		system, err := ai.LoadPrompt(promptsDir, "chat")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
+			return
+		}
+		reply, err := ai.Complete(c.Request.Context(), aiCfg, system, req.Message)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"reply": reply})
+	}
+}
+
 func searchUserPrompt(messages []gmailapi.MessageSummary, query string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Query: %s\n\nThreads:\n", query)
