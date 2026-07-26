@@ -12,7 +12,59 @@ below.
 Screenshots/GIF still pending — added once Phase 7's real self-host test
 is done and there's something worth showing off.
 
-## Quickstart
+## Install
+
+One command, one machine, no separate infra to manage:
+
+```bash
+curl -fsSL https://get.volt.dev | bash
+```
+
+This installs Volt as a local service on your machine — no GitHub clone,
+no manual `.env` editing, no existing Docker install required. The script:
+
+1. Detects your OS (macOS / Linux) and installs Docker Engine if it isn't
+   already present.
+2. Pulls the latest tagged release of Volt into `~/.volt`.
+3. Walks you through creating a Google OAuth client (opens the Google Cloud
+   Console step for you, prompts for the client ID/secret).
+4. Generates your `.env` and starts the stack.
+5. Opens `http://localhost:3000` in your browser once the health check
+   passes.
+
+Prefer to read the script before running it (recommended for anything
+piped into `bash`)? Download it first:
+
+```bash
+curl -fsSL https://get.volt.dev -o install.sh
+less install.sh        # review it
+bash install.sh
+```
+
+### Updating
+
+Volt checks for new releases on startup. To update to the latest version
+manually:
+
+```bash
+volt update
+```
+
+This pulls the newest release, rebuilds the containers, and restarts the
+stack — your data and vault passphrase are untouched.
+
+### Uninstalling
+
+```bash
+volt uninstall
+```
+
+Stops the stack and removes `~/.volt`. Nothing is left running or installed
+system-wide beyond Docker itself.
+
+### Manual install (no installer script)
+
+If you'd rather manage it yourself:
 
 ```bash
 git clone https://github.com/your-repo/volt && cd volt/deploy
