@@ -11,7 +11,7 @@ import (
 )
 
 type saveAIKeyRequest struct {
-	Provider string `json:"provider" binding:"required,oneof=anthropic openai"`
+	Provider string `json:"provider" binding:"required,oneof=anthropic openai google groq openrouter kimi"`
 	APIKey   string `json:"api_key" binding:"required"`
 }
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCommandPalette, type Command } from "../components/CommandPalette";
+import { useCommandPalette, Overlay, KeyHint, type Command } from "../components/CommandPalette";
 import { AiChat, AiChatToggle } from "../components/AiChat";
 import { useReplyLater, SelectionToolbar, ReplyLaterStack } from "../components/ReplyLater";
 import { isTypingTarget } from "../lib/snippets";
@@ -279,10 +279,10 @@ function InboxContent() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [showAllUnread, setShowAllUnread] = useState(false);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const replyLater = useReplyLater();
-  const searchRef = useRef<HTMLInputElement>(null);
 
   function toggleChecked(threadId: string) {
     setCheckedIds((prev) => {
@@ -365,7 +365,7 @@ function InboxContent() {
       if (isTypingTarget(e.target)) return;
       if (e.key === "/") {
         e.preventDefault();
-        searchRef.current?.focus();
+        setSearchOpen(true);
         return;
       }
       if (!visibleMessages || visibleMessages.length === 0) return;
@@ -444,33 +444,28 @@ function InboxContent() {
         </h1>
 
         <div className="flex items-center gap-3 mb-1">
-          <form onSubmit={runSearch} className="flex-1 flex gap-2">
-            <input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search inbox… (/ to focus)"
-              className="flex-1 rounded-xl bg-black/[0.03] border border-black/[0.06] px-3.5 py-2.5 text-sm placeholder:text-gray-400 outline-none transition-shadow focus:ring-2 focus:ring-[#4f46e5]/20 focus:border-[#4f46e5]/30"
-            />
-            {searchResults && (
-              <button
-                type="button"
-                onClick={() => { setSearchResults(null); setQuery(""); }}
-                className="px-3.5 py-2 rounded-xl bg-[#1a1a1a] hover:bg-[#333] text-sm text-white transition-colors"
-              >
-                Clear
-              </button>
-            )}
-          </form>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="flex-1 flex items-center gap-2 rounded-xl bg-black/[0.03] border border-black/[0.06] px-3.5 py-2.5 text-sm text-left text-gray-400 hover:bg-black/[0.045] transition-colors"
+          >
+            <span className="flex-1 truncate">{searchResults ? decodeEntities(query) : "Search inbox · ⌘K"}</span>
+            <kbd className="px-1.5 py-0.5 rounded-md bg-black/[0.05] border border-black/[0.06] text-[11px] font-medium text-gray-500">/</kbd>
+          </button>
+          {searchResults && (
+            <button
+              type="button"
+              onClick={() => { setSearchResults(null); setQuery(""); }}
+              className="px-3.5 py-2 rounded-xl bg-black/[0.04] hover:bg-black/[0.07] text-sm font-medium transition-colors"
+            >
+              Clear
+            </button>
+          )}
           <Link href="/settings" className="text-sm text-gray-400 hover:text-[#1a1a1a] whitespace-nowrap transition-colors">
             AI settings
           </Link>
           <AiChatToggle open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
         </div>
-        {searching && <div className="pt-3 text-sm text-gray-400">Searching…</div>}
-        {searchError && (
-          <div className="pt-3 text-sm text-red-600">{searchError}</div>
-        )}
 
         <div className="mt-8 pb-20">
           <SelectionToolbar
@@ -542,6 +537,69 @@ function InboxContent() {
         </div>
       </div>
       </div>
+
+      {searchOpen && (
+        <Overlay
+          onClose={() => setSearchOpen(false)}
+          footer={
+            <>
+              <KeyHint keys="↵" label="Search with AI" />
+              <KeyHint keys="esc" label="Close" />
+            </>
+          }
+        >
+          <form onSubmit={runSearch}>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSearchOpen(false);
+              }}
+              placeholder="Search inbox…"
+              className="w-full px-5 py-4 bg-transparent text-[15px] text-[#1a1a1a] placeholder:text-gray-400 outline-none"
+            />
+          </form>
+          <div className="max-h-96 overflow-y-auto px-2 pb-2">
+            {searching && <div className="px-3 py-6 text-center text-sm text-gray-400">Searching…</div>}
+            {searchError && <div className="px-3 py-3 text-sm text-red-600">{searchError}</div>}
+            {!searching && !searchError && searchResults && searchResults.length === 0 && (
+              <div className="px-3 py-6 text-center text-sm text-gray-400">No matches.</div>
+            )}
+            {!searching &&
+              searchResults?.map((m) => {
+                const color = avatarColor(m.from);
+                return (
+                  <button
+                    key={m.thread_id}
+                    type="button"
+                    onClick={() => {
+                      setSearchOpen(false);
+                      open(m.thread_id);
+                    }}
+                    className="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
+                  >
+                    <span
+                      className="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-[12px] font-semibold"
+                      style={{ backgroundColor: color.bg, color: color.fg }}
+                    >
+                      {initials(m.from)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-medium text-[#1a1a1a]">
+                        {decodeEntities(m.subject) || "(no subject)"}
+                      </div>
+                      <div className="truncate text-[12.5px] text-gray-400">{senderName(m.from)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            {!searching && !searchError && !searchResults && (
+              <div className="px-3 py-6 text-center text-sm text-gray-400">Press Enter to search with AI.</div>
+            )}
+          </div>
+        </Overlay>
+      )}
 
       <AiChat open={chatOpen} onClose={() => setChatOpen(false)} />
       <ReplyLaterStack items={replyLater.items} onRemove={replyLater.remove} />

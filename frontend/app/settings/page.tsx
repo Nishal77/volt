@@ -6,7 +6,7 @@ import Link from "next/link";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export default function SettingsPage() {
-  const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
+  const [provider, setProvider] = useState<"anthropic" | "openai" | "google" | "groq" | "openrouter" | "kimi">("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<{ configured: boolean; provider?: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -47,11 +47,15 @@ export default function SettingsPage() {
         <div className="space-y-2">
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value as "anthropic" | "openai")}
+            onChange={(e) => setProvider(e.target.value as typeof provider)}
             className="w-full rounded-xl bg-white/5 border border-white/10 p-2 text-sm"
           >
+            <option value="groq">Groq (free tier)</option>
+            <option value="google">Google (Gemini, free tier)</option>
+            <option value="kimi">Kimi (Moonshot AI)</option>
             <option value="anthropic">Anthropic (Claude)</option>
             <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
           </select>
           <input
             type="password"

@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/oauth2"
 
+	"github.com/Nishal77/volt/backend/internal/db"
 	"github.com/Nishal77/volt/backend/internal/gmailapi"
 )
 
@@ -31,6 +32,19 @@ func listInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"messages": messages})
+	}
+}
+
+// gmailStatusHandler is a cheap "is an account connected" check — reads
+// the stored token from the DB, no live Gmail API call.
+func gmailStatusHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
+		_, err := db.GetToken(c.Request.Context(), pool, encKey)
+		c.JSON(http.StatusOK, gin.H{"connected": err == nil})
 	}
 }
 

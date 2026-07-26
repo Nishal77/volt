@@ -37,6 +37,14 @@ func Complete(ctx context.Context, cfg Config, systemPrompt, userPrompt string) 
 		return completeAnthropic(ctx, cfg.APIKey, systemPrompt, userPrompt)
 	case "openai":
 		return completeOpenAI(ctx, cfg.APIKey, systemPrompt, userPrompt)
+	case "google":
+		return completeGoogle(ctx, cfg.APIKey, systemPrompt, userPrompt)
+	case "groq":
+		return completeOpenAICompatible(ctx, "https://api.groq.com/openai/v1/chat/completions", groqModel, cfg.APIKey, systemPrompt, userPrompt)
+	case "openrouter":
+		return completeOpenAICompatible(ctx, "https://openrouter.ai/api/v1/chat/completions", openRouterModel, cfg.APIKey, systemPrompt, userPrompt)
+	case "kimi":
+		return completeOpenAICompatible(ctx, "https://api.moonshot.ai/v1/chat/completions", kimiModel, cfg.APIKey, systemPrompt, userPrompt)
 	default:
 		return "", fmt.Errorf("ai: unknown provider %q", cfg.Provider)
 	}
@@ -74,17 +82,29 @@ func completeAnthropic(ctx context.Context, apiKey, systemPrompt, userPrompt str
 	return out.Content[0].Text, nil
 }
 
-const openAIModel = "gpt-5-mini"
+const (
+	openAIModel     = "gpt-5-mini"
+	groqModel       = "llama-3.3-70b-versatile"
+	openRouterModel = "openai/gpt-4o-mini"
+	kimiModel       = "moonshot-v1-8k"
+)
 
 func completeOpenAI(ctx context.Context, apiKey, systemPrompt, userPrompt string) (string, error) {
+	return completeOpenAICompatible(ctx, "https://api.openai.com/v1/chat/completions", openAIModel, apiKey, systemPrompt, userPrompt)
+}
+
+// completeOpenAICompatible covers every provider that speaks the same
+// chat-completions shape OpenAI does — Groq and OpenRouter both do, so
+// this one function backs all three instead of near-duplicate copies.
+func completeOpenAICompatible(ctx context.Context, url, model, apiKey, systemPrompt, userPrompt string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
-		"model": openAIModel,
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userPrompt},
 		},
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -103,9 +123,43 @@ func completeOpenAI(ctx context.Context, apiKey, systemPrompt, userPrompt string
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(resp, &out); err != nil || len(out.Choices) == 0 {
-		return "", fmt.Errorf("ai: unexpected openai response: %s", resp)
+		return "", fmt.Errorf("ai: unexpected response from %s: %s", url, resp)
 	}
 	return out.Choices[0].Message.Content, nil
+}
+
+const googleModel = "gemini-2.0-flash"
+
+func completeGoogle(ctx context.Context, apiKey, systemPrompt, userPrompt string) (string, error) {
+	body, _ := json.Marshal(map[string]any{
+		"contents":          []map[string]any{{"parts": []map[string]string{{"text": userPrompt}}}},
+		"systemInstruction": map[string]any{"parts": []map[string]string{{"text": systemPrompt}}},
+	})
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", googleModel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
+
+	resp, err := doRequest(req)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(resp, &out); err != nil || len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("ai: unexpected google response: %s", resp)
+	}
+	return out.Candidates[0].Content.Parts[0].Text, nil
 }
 
 func doRequest(req *http.Request) ([]byte, error) {

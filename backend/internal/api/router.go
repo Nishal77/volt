@@ -53,6 +53,8 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	inbox.POST("/:id/summarize", summarizeThreadHandler(oauthCfg, pool, cfg.PromptsDir))
 	inbox.POST("/:id/draft", draftReplyHandler(oauthCfg, pool, cfg.PromptsDir))
 
+	r.GET("/api/gmail/status", gmailStatusHandler(pool))
+
 	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
 	r.POST("/api/chat", chatHandler(pool, cfg.PromptsDir))
 	r.GET("/api/avatar", avatarHandler)
