@@ -97,6 +97,7 @@ function CommandPalette({ commands, onClose }: { commands: Command[]; onClose: (
   return (
     <Overlay
       onClose={onClose}
+      solid
       footer={
         <>
           <KeyHint keys="↑↓" label="Navigate" />

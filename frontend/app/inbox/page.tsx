@@ -86,6 +86,15 @@ function InboxContent() {
     setMessages((prev) => (prev ? prev.filter((m) => m.thread_id !== threadId) : prev));
   }
 
+  function markRead(threadId: string) {
+    fetch(`${API_URL}/api/inbox/${threadId}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ read: true }),
+    });
+    setMessages((prev) => (prev ? prev.map((m) => (m.thread_id === threadId ? { ...m, unread: false } : m)) : prev));
+  }
+
   function open(threadId: string) {
     router.push(`/inbox/${threadId}`);
   }
@@ -145,11 +154,23 @@ function InboxContent() {
 
   const commands: Command[] = [
     { id: "reload", label: "Reload inbox", run: load },
+    { id: "search", label: "Search inbox with AI", run: () => setSearchOpen(true) },
+    { id: "chat", label: "Open AI chat", run: () => setChatOpen(true) },
+    { id: "settings", label: "AI settings", run: () => router.push("/settings") },
     { id: "snippets", label: "Manage snippets", run: () => router.push("/snippets") },
     ...(messages && messages[selected]
       ? [
           { id: "open", label: "Open selected thread", run: () => open(messages[selected].thread_id) },
           { id: "archive", label: "Archive selected thread", run: () => archive(messages[selected].thread_id) },
+          { id: "mark-read", label: "Mark selected as read", run: () => markRead(messages[selected].thread_id) },
+          {
+            id: "reply-later",
+            label: "Reply later — selected thread",
+            run: () => {
+              const m = messages[selected];
+              replyLater.add([{ thread_id: m.thread_id, subject: m.subject, from: m.from }]);
+            },
+          },
         ]
       : []),
   ];
@@ -178,6 +199,10 @@ function InboxContent() {
   }
 
   const visible = searchResults ?? messages;
+  // ponytail: string-compares against the backend's "Jan 2" date label (no
+  // year) — matches today correctly except right at a year boundary.
+  const todayLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const todayCount = visible.filter((m) => m.date === todayLabel).length;
   const allUnread = visible.filter((m) => m.unread);
   const readItems = visible.filter((m) => !m.unread);
   const unreadItems = showAllUnread ? allUnread : allUnread.slice(0, NEW_FOR_YOU_LIMIT);
@@ -239,9 +264,7 @@ function InboxContent() {
                   <span className="h-1.5 w-1.5 rounded-full bg-[#4f46e5]" />
                   <span className="text-[12px] font-bold tracking-tight text-gray-600">NEW FOR YOU</span>
                   <span className="h-px flex-1 bg-black/10" />
-                  <button type="button" className="text-[13px] font-medium text-[#4f46e5] hover:text-[#3c34c9] transition-colors">
-                    View all Mails
-                  </button>
+                  <span className="text-[13px] font-medium text-[#4f46e5]">{todayCount} today</span>
                 </div>
                 <div className="divide-y divide-black/[0.045]">
                   {unreadItems.map((m) => (
