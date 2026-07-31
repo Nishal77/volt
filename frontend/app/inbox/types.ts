@@ -6,6 +6,7 @@ export type Message = {
   unread: boolean;
   starred: boolean;
   awaiting_reply: boolean;
+  newsletter: boolean;
   date: string;
   message_count: number;
 };

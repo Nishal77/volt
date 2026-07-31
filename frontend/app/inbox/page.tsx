@@ -6,6 +6,8 @@ import { useCommandPalette, type Command } from "../components/CommandPalette";
 import { AiChat, AiChatToggle } from "../components/AiChat";
 import { useReplyLater, SelectionToolbar, ReplyLaterStack } from "../components/ReplyLater";
 import { LoaderScreen } from "../components/Loader";
+import { useScheduledSends, ScheduledOutboxToggle, ScheduledOutbox } from "../components/ScheduledOutbox";
+import { ShortcutHelp } from "../components/ShortcutHelp";
 import { isTypingTarget } from "../lib/snippets";
 import { ConnectGmail } from "./ConnectGmail";
 import { Row } from "./Row";
@@ -39,9 +41,13 @@ function InboxContent() {
   const [chatOpen, setChatOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAllUnread, setShowAllUnread] = useState(false);
+  const [showNewsletters, setShowNewsletters] = useState(false);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lastArchived, setLastArchived] = useState<Message | null>(null);
+  const [outboxOpen, setOutboxOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const replyLater = useReplyLater();
+  const scheduledSends = useScheduledSends();
 
   function toggleChecked(threadId: string) {
     setCheckedIds((prev) => {
@@ -162,12 +168,14 @@ function InboxContent() {
   // keyed by thread_id, not array position. An index would silently point
   // at the wrong row whenever a background inbox refetch reorders the
   // underlying array between a hover and the next keypress.
-  const allUnread = (visibleMessages ?? []).filter((m) => m.unread);
-  const followUpItems = (visibleMessages ?? []).filter((m) => !m.unread && m.awaiting_reply);
-  const readItems = (visibleMessages ?? []).filter((m) => !m.unread && !m.awaiting_reply);
+  const newsletterItems = (visibleMessages ?? []).filter((m) => m.newsletter);
+  const primary = (visibleMessages ?? []).filter((m) => !m.newsletter);
+  const allUnread = primary.filter((m) => m.unread);
+  const followUpItems = primary.filter((m) => !m.unread && m.awaiting_reply);
+  const readItems = primary.filter((m) => !m.unread && !m.awaiting_reply);
   const unreadItems = showAllUnread ? allUnread : allUnread.slice(0, NEW_FOR_YOU_LIMIT);
   const hiddenUnreadCount = allUnread.length - unreadItems.length;
-  const ordered = [...unreadItems, ...followUpItems, ...readItems];
+  const ordered = [...unreadItems, ...followUpItems, ...readItems, ...(showNewsletters ? newsletterItems : [])];
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -175,6 +183,11 @@ function InboxContent() {
       if (e.key === "/") {
         e.preventDefault();
         setSearchOpen(true);
+        return;
+      }
+      if (e.key === "?") {
+        e.preventDefault();
+        setHelpOpen(true);
         return;
       }
       if (e.key === "z") {
@@ -218,6 +231,7 @@ function InboxContent() {
     { id: "chat", label: "Open AI chat", run: () => setChatOpen(true) },
     { id: "settings", label: "AI settings", run: () => router.push("/settings") },
     { id: "snippets", label: "Manage snippets", run: () => router.push("/snippets") },
+    { id: "shortcuts", label: "Show keyboard shortcuts", run: () => setHelpOpen(true) },
     ...(selectedMessage
       ? [
           { id: "open", label: "Open selected thread", run: () => open(selectedMessage.thread_id) },
@@ -260,7 +274,7 @@ function InboxContent() {
   // ponytail: string-compares against the backend's "Jan 2" date label (no
   // year) — matches today correctly except right at a year boundary.
   const todayLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const todayCount = (visibleMessages ?? []).filter((m) => m.date === todayLabel).length;
+  const todayCount = (visibleMessages ?? []).filter((m) => m.date === todayLabel && !m.newsletter).length;
 
   return (
     <div className="h-screen overflow-hidden bg-white text-[#1a1a1a] flex">
@@ -292,6 +306,7 @@ function InboxContent() {
                 Clear
               </button>
             )}
+            <ScheduledOutboxToggle count={scheduledSends.items.length} onClick={() => setOutboxOpen(true)} />
             <AiChatToggle open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
           </div>
 
@@ -387,6 +402,38 @@ function InboxContent() {
                 </div>
               </div>
             )}
+
+            {newsletterItems.length > 0 && (
+              <div className={ordered.length > 0 ? "mt-10" : ""}>
+                <button
+                  type="button"
+                  onClick={() => setShowNewsletters((v) => !v)}
+                  className="w-full flex items-center gap-3 px-1 pb-4"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+                  <span className="text-[12px] font-bold tracking-tight text-gray-600">
+                    NEWSLETTERS ({newsletterItems.length})
+                  </span>
+                  <span className="h-px flex-1 bg-gradient-to-r from-black/[0.08] to-transparent" />
+                  <span className="text-[13px] font-medium text-gray-400">{showNewsletters ? "Hide" : "Show"}</span>
+                </button>
+                {showNewsletters && (
+                  <div className="divide-y divide-black/[0.045]">
+                    {newsletterItems.map((m) => (
+                      <Row
+                        key={m.thread_id}
+                        m={m}
+                        isSelected={m.thread_id === selected}
+                        isChecked={checkedIds.has(m.thread_id)}
+                        onHover={() => setSelected(m.thread_id)}
+                        onToggleCheck={() => toggleChecked(m.thread_id)}
+                        onToggleStar={() => toggleStarred(m.thread_id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -417,6 +464,14 @@ function InboxContent() {
           </button>
         </div>
       )}
+      {outboxOpen && (
+        <ScheduledOutbox
+          items={scheduledSends.items}
+          onCancel={scheduledSends.cancel}
+          onClose={() => setOutboxOpen(false)}
+        />
+      )}
+      {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }

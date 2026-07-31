@@ -52,10 +52,16 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	inbox.POST("/:id/read", setReadHandler(oauthCfg, pool))
 	inbox.POST("/:id/star", setStarredHandler(oauthCfg, pool))
 	inbox.POST("/:id/reply", replyThreadHandler(oauthCfg, pool))
+	inbox.POST("/:id/schedule", scheduleSendHandler(pool))
 	inbox.POST("/:id/summarize", summarizeThreadHandler(oauthCfg, pool, cfg.PromptsDir))
 	inbox.POST("/:id/draft", draftReplyHandler(oauthCfg, pool, cfg.PromptsDir))
 
 	r.GET("/api/gmail/status", gmailStatusHandler(pool))
+
+	scheduled := r.Group("/api/scheduled")
+	scheduled.GET("", listScheduledSendsHandler(pool))
+	scheduled.DELETE("/:id", cancelScheduledSendHandler(pool))
+	startScheduledSendWorker(oauthCfg, pool)
 
 	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
 	r.POST("/api/chat", chatHandler(pool, cfg.PromptsDir))
@@ -74,7 +80,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 func corsMiddleware(frontendURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", frontendURL)
-		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type")
 		c.Next()
 	}

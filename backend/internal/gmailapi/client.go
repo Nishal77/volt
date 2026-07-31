@@ -71,6 +71,7 @@ type MessageSummary struct {
 	Unread        bool   `json:"unread"`
 	Starred       bool   `json:"starred"`
 	AwaitingReply bool   `json:"awaiting_reply"`
+	Newsletter    bool   `json:"newsletter"`
 	Date          string `json:"date"`
 	MessageCount  int    `json:"message_count"`
 }
@@ -138,7 +139,7 @@ func summarize(ctx context.Context, svc *gmail.Service, threads []*gmail.Thread)
 			defer func() { <-sem }()
 
 			full, err := svc.Users.Threads.Get("me", t.Id).
-				Format("metadata").MetadataHeaders("Subject", "From", "Date").Context(ctx).Do()
+				Format("metadata").MetadataHeaders("Subject", "From", "Date", "List-Unsubscribe").Context(ctx).Do()
 			if err != nil {
 				errs[i] = fmt.Errorf("gmailapi: get thread %s: %w", t.Id, err)
 				return
@@ -155,6 +156,7 @@ func summarize(ctx context.Context, svc *gmail.Service, threads []*gmail.Thread)
 				Unread:        hasLabel(last.LabelIds, "UNREAD"),
 				Starred:       hasLabel(last.LabelIds, "STARRED"),
 				AwaitingReply: awaitingReply(last.LabelIds, header(last, "Date")),
+				Newsletter:    header(last, "List-Unsubscribe") != "",
 				Date:          formatDate(header(last, "Date")),
 				MessageCount:  len(full.Messages),
 			}

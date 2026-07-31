@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCommandPalette, type Command } from "../../components/CommandPalette";
 import { applyVariables, isTypingTarget, loadSnippets } from "../../lib/snippets";
 import { LoaderScreen } from "../../components/Loader";
+import { ShortcutHelp } from "../../components/ShortcutHelp";
 
 type Message = {
   id: string;
@@ -96,6 +97,11 @@ export default function ThreadPage() {
   const [summarizing, setSummarizing] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [scheduled, setScheduled] = useState<string | null>(null);
+  const [minScheduleAt] = useState(() => new Date(Date.now() + 60000).toISOString().slice(0, 16));
+  const [helpOpen, setHelpOpen] = useState(false);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -140,6 +146,33 @@ export default function ThreadPage() {
         body: JSON.stringify({ body: replyBody }),
       });
       router.push("/inbox");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendLater(e: FormEvent) {
+    e.preventDefault();
+    if (!replyBody.trim() || !scheduleAt) return;
+    const sendAt = new Date(scheduleAt);
+    if (sendAt.getTime() <= Date.now()) {
+      setAiError("Pick a time in the future.");
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch(`${API_URL}/api/inbox/${id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: replyBody, send_at: sendAt.toISOString() }),
+      });
+      if (!res.ok) {
+        setAiError("Couldn't schedule the send. Try again.");
+        return;
+      }
+      setScheduled(sendAt.toLocaleString());
+      setScheduling(false);
+      setReplyBody("");
     } finally {
       setSending(false);
     }
@@ -196,6 +229,9 @@ export default function ThreadPage() {
       else if (e.key === "r") {
         e.preventDefault();
         replyRef.current?.focus();
+      } else if (e.key === "?") {
+        e.preventDefault();
+        setHelpOpen(true);
       } else if (e.key === "Escape") router.push("/inbox");
     }
     window.addEventListener("keydown", onKeyDown);
@@ -209,6 +245,7 @@ export default function ThreadPage() {
     { id: "back", label: "Back to inbox", run: () => router.push("/inbox") },
     { id: "summarize", label: "AI: Summarize thread", run: summarize },
     { id: "draft", label: "AI: Draft reply", run: draftReply },
+    { id: "shortcuts", label: "Show keyboard shortcuts", run: () => setHelpOpen(true) },
     ...loadSnippets().map((s) => ({ id: s.id, label: `Insert snippet: ${s.name}`, run: () => insertSnippet(s.body) })),
   ];
   const { palette } = useCommandPalette(commands);
@@ -304,7 +341,13 @@ export default function ThreadPage() {
           ))}
         </div>
 
-        <form onSubmit={sendReply}>
+        {scheduled && (
+          <div className="mb-3 px-3.5 py-2.5 rounded-xl bg-[#4f46e5]/[0.06] border border-[#4f46e5]/15 text-sm text-[#4f46e5]">
+            Scheduled to send {scheduled}.
+          </div>
+        )}
+
+        <form onSubmit={scheduling ? sendLater : sendReply}>
           <textarea
             ref={replyRef}
             value={replyBody}
@@ -313,15 +356,56 @@ export default function ThreadPage() {
             rows={4}
             className="w-full rounded-xl bg-black/[0.03] border border-black/[0.06] p-3.5 text-sm placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#4f46e5]/20 focus:border-[#4f46e5]/30 transition-shadow"
           />
-          <button
-            type="submit"
-            disabled={sending || !replyBody.trim()}
-            className="mt-3 px-6 py-2.5 rounded-xl bg-[#4f46e5] hover:bg-[#3c34c9] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-          >
-            {sending ? "Sending…" : "Send reply"}
-          </button>
+          {scheduling && (
+            <input
+              type="datetime-local"
+              value={scheduleAt}
+              onChange={(e) => setScheduleAt(e.target.value)}
+              min={minScheduleAt}
+              className="mt-3 rounded-xl bg-black/[0.03] border border-black/[0.06] px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#4f46e5]/20"
+            />
+          )}
+          <div className="mt-3 flex items-center gap-2">
+            {scheduling ? (
+              <>
+                <button
+                  type="submit"
+                  disabled={sending || !replyBody.trim() || !scheduleAt}
+                  className="px-6 py-2.5 rounded-xl bg-[#4f46e5] hover:bg-[#3c34c9] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                >
+                  {sending ? "Scheduling…" : "Schedule send"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduling(false)}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:text-[#1a1a1a] transition-colors"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="submit"
+                  disabled={sending || !replyBody.trim()}
+                  className="px-6 py-2.5 rounded-xl bg-[#4f46e5] hover:bg-[#3c34c9] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                >
+                  {sending ? "Sending…" : "Send reply"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduling(true)}
+                  disabled={!replyBody.trim()}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:text-[#1a1a1a] disabled:opacity-40 transition-colors"
+                >
+                  Send later
+                </button>
+              </>
+            )}
+          </div>
         </form>
       </div>
+      {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }
