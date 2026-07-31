@@ -132,16 +132,32 @@ func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir strin
 		if !ok {
 			return
 		}
-		aiCfg, ok := loadAIConfig(c, pool, encKey)
-		if !ok {
-			return
-		}
 		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
 		if err != nil {
 			handleGmailError(c, err)
 			return
 		}
 		defer save()
+
+		provider, apiKey, err := db.GetAIKey(c.Request.Context(), pool, encKey)
+		if errors.Is(err, db.ErrNoAIKey) {
+			// No AI key configured — fall back to Gmail's own search syntax
+			// instead of failing outright. Keyword-only, no semantic match,
+			// but search still works for users who haven't set up AI.
+			results, err := gmailapi.SearchInbox(c.Request.Context(), svc, query, inboxMaxResults)
+			if err != nil {
+				handleGmailError(c, err)
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"messages": results, "fallback": "keyword"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ai_key_lookup_failed"})
+			return
+		}
+		aiCfg := ai.Config{Provider: provider, APIKey: apiKey}
+
 		messages, err := gmailapi.ListInbox(c.Request.Context(), svc, inboxMaxResults)
 		if err != nil {
 			handleGmailError(c, err)

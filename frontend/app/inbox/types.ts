@@ -4,6 +4,8 @@ export type Message = {
   from: string;
   snippet: string;
   unread: boolean;
+  starred: boolean;
+  awaiting_reply: boolean;
   date: string;
   message_count: number;
 };

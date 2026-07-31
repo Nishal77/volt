@@ -12,12 +12,14 @@ export function Row({
   isChecked,
   onHover,
   onToggleCheck,
+  onToggleStar,
 }: {
   m: Message;
   isSelected: boolean;
   isChecked: boolean;
   onHover: () => void;
   onToggleCheck: () => void;
+  onToggleStar: () => void;
 }) {
   return (
     <Link
@@ -71,6 +73,20 @@ export function Row({
           {decodeEntities(m.snippet)}
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleStar();
+        }}
+        aria-label={m.starred ? "Unstar" : "Star"}
+        className={`shrink-0 text-lg leading-none transition-opacity ${
+          m.starred ? "text-[#f59e0b] opacity-100" : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-[#f59e0b]"
+        }`}
+      >
+        {m.starred ? "★" : "☆"}
+      </button>
       <span className="text-[13px] text-gray-400 shrink-0 pl-4 tabular-nums">{m.date}</span>
     </Link>
   );

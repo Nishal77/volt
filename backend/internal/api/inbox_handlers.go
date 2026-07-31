@@ -122,6 +122,58 @@ func setReadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 	}
 }
 
+func unarchiveThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
+		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
+		if err != nil {
+			handleGmailError(c, err)
+			return
+		}
+		defer save()
+
+		if err := gmailapi.Unarchive(c.Request.Context(), svc, c.Param("id")); err != nil {
+			handleGmailError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "unarchived"})
+	}
+}
+
+type setStarredRequest struct {
+	Starred bool `json:"starred"`
+}
+
+func setStarredHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req setStarredRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body"})
+			return
+		}
+
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
+		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
+		if err != nil {
+			handleGmailError(c, err)
+			return
+		}
+		defer save()
+
+		if err := gmailapi.SetStarred(c.Request.Context(), svc, c.Param("id"), req.Starred); err != nil {
+			handleGmailError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	}
+}
+
 type replyRequest struct {
 	Body string `json:"body" binding:"required"`
 }

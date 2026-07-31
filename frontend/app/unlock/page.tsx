@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { LoaderScreen } from "../components/Loader";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -66,7 +67,7 @@ export default function UnlockPage() {
   }
 
   if (setup === null) {
-    return <div className="min-h-screen flex items-center justify-center bg-black text-white">Loading…</div>;
+    return <LoaderScreen className="bg-black text-white" />;
   }
 
   return (

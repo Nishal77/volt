@@ -8,6 +8,8 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/net/html"
 	"golang.org/x/oauth2"
@@ -62,14 +64,20 @@ func IsRateLimited(err error) bool {
 }
 
 type MessageSummary struct {
-	ThreadID     string `json:"thread_id"`
-	Subject      string `json:"subject"`
-	From         string `json:"from"`
-	Snippet      string `json:"snippet"`
-	Unread       bool   `json:"unread"`
-	Date         string `json:"date"`
-	MessageCount int    `json:"message_count"`
+	ThreadID      string `json:"thread_id"`
+	Subject       string `json:"subject"`
+	From          string `json:"from"`
+	Snippet       string `json:"snippet"`
+	Unread        bool   `json:"unread"`
+	Starred       bool   `json:"starred"`
+	AwaitingReply bool   `json:"awaiting_reply"`
+	Date          string `json:"date"`
+	MessageCount  int    `json:"message_count"`
 }
+
+// followUpAfter is how long a thread you sent the last message in can sit
+// without a reply before it's surfaced as awaiting one.
+const followUpAfter = 3 * 24 * time.Hour
 
 type MessageDetail struct {
 	ID       string `json:"id"`
@@ -89,35 +97,81 @@ type ThreadDetail struct {
 
 // ListInbox returns the most recent threads in INBOX, newest first.
 //
-// ponytail: one Threads.Get per thread for headers — N+1 calls, fine at
-// the "recent 25" scale this phase asks for. Batch it (or cache locally)
-// if a later phase needs hundreds of threads per load.
+// ponytail: still one Threads.Get per thread for headers (Gmail's batch API
+// needs a separate client setup), but summarize() below fires them
+// concurrently — wall time is ~1 slow call instead of 25 sequential ones.
+// Revisit with the batch API if a later phase needs hundreds per load.
 func ListInbox(ctx context.Context, svc *gmail.Service, maxResults int64) ([]MessageSummary, error) {
 	list, err := svc.Users.Threads.List("me").LabelIds("INBOX").MaxResults(maxResults).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("gmailapi: list threads: %w", err)
 	}
+	return summarize(ctx, svc, list.Threads)
+}
 
-	summaries := make([]MessageSummary, 0, len(list.Threads))
-	for _, t := range list.Threads {
-		full, err := svc.Users.Threads.Get("me", t.Id).
-			Format("metadata").MetadataHeaders("Subject", "From", "Date").Context(ctx).Do()
+// SearchInbox runs Gmail's own search syntax (same query language as the
+// Gmail search bar) — a keyword-only fallback for when no AI key is
+// configured, so search still works without one.
+func SearchInbox(ctx context.Context, svc *gmail.Service, query string, maxResults int64) ([]MessageSummary, error) {
+	list, err := svc.Users.Threads.List("me").Q(query).MaxResults(maxResults).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("gmailapi: search threads: %w", err)
+	}
+	return summarize(ctx, svc, list.Threads)
+}
+
+// summarizeConcurrency caps in-flight Threads.Get calls so a large inbox
+// page doesn't slam Gmail's per-user rate limit all at once.
+const summarizeConcurrency = 8
+
+func summarize(ctx context.Context, svc *gmail.Service, threads []*gmail.Thread) ([]MessageSummary, error) {
+	results := make([]*MessageSummary, len(threads))
+	errs := make([]error, len(threads))
+
+	sem := make(chan struct{}, summarizeConcurrency)
+	var wg sync.WaitGroup
+	for i, t := range threads {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, t *gmail.Thread) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			full, err := svc.Users.Threads.Get("me", t.Id).
+				Format("metadata").MetadataHeaders("Subject", "From", "Date").Context(ctx).Do()
+			if err != nil {
+				errs[i] = fmt.Errorf("gmailapi: get thread %s: %w", t.Id, err)
+				return
+			}
+			if len(full.Messages) == 0 {
+				return
+			}
+			last := full.Messages[len(full.Messages)-1]
+			results[i] = &MessageSummary{
+				ThreadID:      t.Id,
+				Subject:       header(last, "Subject"),
+				From:          header(last, "From"),
+				Snippet:       t.Snippet,
+				Unread:        hasLabel(last.LabelIds, "UNREAD"),
+				Starred:       hasLabel(last.LabelIds, "STARRED"),
+				AwaitingReply: awaitingReply(last.LabelIds, header(last, "Date")),
+				Date:          formatDate(header(last, "Date")),
+				MessageCount:  len(full.Messages),
+			}
+		}(i, t)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
-			return nil, fmt.Errorf("gmailapi: get thread %s: %w", t.Id, err)
+			return nil, err
 		}
-		if len(full.Messages) == 0 {
-			continue
+	}
+	summaries := make([]MessageSummary, 0, len(threads))
+	for _, r := range results {
+		if r != nil {
+			summaries = append(summaries, *r)
 		}
-		last := full.Messages[len(full.Messages)-1]
-		summaries = append(summaries, MessageSummary{
-			ThreadID:     t.Id,
-			Subject:      header(last, "Subject"),
-			From:         header(last, "From"),
-			Snippet:      t.Snippet,
-			Unread:       hasLabel(last.LabelIds, "UNREAD"),
-			Date:         formatDate(header(last, "Date")),
-			MessageCount: len(full.Messages),
-		})
 	}
 	return summaries, nil
 }
@@ -154,6 +208,16 @@ func Archive(ctx context.Context, svc *gmail.Service, threadID string) error {
 	return nil
 }
 
+func Unarchive(ctx context.Context, svc *gmail.Service, threadID string) error {
+	_, err := svc.Users.Threads.Modify("me", threadID, &gmail.ModifyThreadRequest{
+		AddLabelIds: []string{"INBOX"},
+	}).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("gmailapi: unarchive thread %s: %w", threadID, err)
+	}
+	return nil
+}
+
 func SetRead(ctx context.Context, svc *gmail.Service, threadID string, read bool) error {
 	req := &gmail.ModifyThreadRequest{}
 	if read {
@@ -164,6 +228,20 @@ func SetRead(ctx context.Context, svc *gmail.Service, threadID string, read bool
 	_, err := svc.Users.Threads.Modify("me", threadID, req).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("gmailapi: set read thread %s: %w", threadID, err)
+	}
+	return nil
+}
+
+func SetStarred(ctx context.Context, svc *gmail.Service, threadID string, starred bool) error {
+	req := &gmail.ModifyThreadRequest{}
+	if starred {
+		req.AddLabelIds = []string{"STARRED"}
+	} else {
+		req.RemoveLabelIds = []string{"STARRED"}
+	}
+	_, err := svc.Users.Threads.Modify("me", threadID, req).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("gmailapi: set starred thread %s: %w", threadID, err)
 	}
 	return nil
 }
@@ -220,6 +298,20 @@ func header(msg *gmail.Message, name string) string {
 		}
 	}
 	return ""
+}
+
+// awaitingReply reports whether the thread's last message was sent by the
+// account owner (Gmail tags outgoing mail SENT) and is older than
+// followUpAfter with no reply since — i.e. it's worth nudging about.
+func awaitingReply(labels []string, rawDate string) bool {
+	if !hasLabel(labels, "SENT") {
+		return false
+	}
+	t, err := mail.ParseDate(rawDate)
+	if err != nil {
+		return false
+	}
+	return time.Since(t) >= followUpAfter
 }
 
 // formatDate turns a raw RFC 2822 "Date" header into a short display form

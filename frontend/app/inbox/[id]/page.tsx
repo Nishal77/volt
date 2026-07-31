@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCommandPalette, type Command } from "../../components/CommandPalette";
 import { applyVariables, isTypingTarget, loadSnippets } from "../../lib/snippets";
+import { LoaderScreen } from "../../components/Loader";
 
 type Message = {
   id: string;
@@ -231,7 +232,7 @@ export default function ThreadPage() {
     );
   }
   if (!thread) {
-    return <div className="min-h-screen flex items-center justify-center bg-white text-[#1a1a1a]">{palette}Loading…</div>;
+    return <>{palette}<LoaderScreen className="bg-white text-[#1a1a1a]" /></>;
   }
 
   const subject = thread.messages[thread.messages.length - 1]?.subject;

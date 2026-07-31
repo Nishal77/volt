@@ -60,10 +60,12 @@ export function useReplyLater() {
 export function SelectionToolbar({
   count,
   onReplyLater,
+  onArchive,
   onClear,
 }: {
   count: number;
   onReplyLater: () => void;
+  onArchive: () => void;
   onClear: () => void;
 }) {
   if (count === 0) return null;
@@ -72,8 +74,15 @@ export function SelectionToolbar({
       <span className="text-[13px] font-medium text-[#4f46e5]">{count} selected</span>
       <button
         type="button"
+        onClick={onArchive}
+        className="ml-auto inline-flex items-center gap-1.5 text-[13px] font-medium text-[#1a1a1a] bg-white border border-black/[0.08] hover:bg-black/[0.03] rounded-lg px-3 py-1.5 transition-colors"
+      >
+        Archive
+      </button>
+      <button
+        type="button"
         onClick={onReplyLater}
-        className="ml-auto inline-flex items-center gap-1.5 text-[13px] font-medium text-white bg-[#4f46e5] hover:bg-[#3c34c9] rounded-lg px-3 py-1.5 transition-colors"
+        className="inline-flex items-center gap-1.5 text-[13px] font-medium text-white bg-[#4f46e5] hover:bg-[#3c34c9] rounded-lg px-3 py-1.5 transition-colors"
       >
         ↩ Reply Later
       </button>

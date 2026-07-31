@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCommandPalette, type Command } from "../components/CommandPalette";
 import { AiChat, AiChatToggle } from "../components/AiChat";
 import { useReplyLater, SelectionToolbar, ReplyLaterStack } from "../components/ReplyLater";
+import { LoaderScreen } from "../components/Loader";
 import { isTypingTarget } from "../lib/snippets";
 import { ConnectGmail } from "./ConnectGmail";
 import { Row } from "./Row";
@@ -17,7 +18,7 @@ const NEW_FOR_YOU_LIMIT = 7;
 
 export default function InboxPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-white text-[#1a1a1a]">Loading…</div>}>
+    <Suspense fallback={<LoaderScreen className="bg-white text-[#1a1a1a]" />}>
       <InboxContent />
     </Suspense>
   );
@@ -30,7 +31,7 @@ function InboxContent() {
 
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Message[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -39,6 +40,7 @@ function InboxContent() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAllUnread, setShowAllUnread] = useState(false);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [lastArchived, setLastArchived] = useState<Message | null>(null);
   const replyLater = useReplyLater();
 
   function toggleChecked(threadId: string) {
@@ -83,7 +85,26 @@ function InboxContent() {
 
   function archive(threadId: string) {
     fetch(`${API_URL}/api/inbox/${threadId}/archive`, { method: "POST" });
-    setMessages((prev) => (prev ? prev.filter((m) => m.thread_id !== threadId) : prev));
+    setMessages((prev) => {
+      if (!prev) return prev;
+      const archived = prev.find((m) => m.thread_id === threadId) ?? null;
+      setLastArchived(archived);
+      return prev.filter((m) => m.thread_id !== threadId);
+    });
+  }
+
+  function archiveMany(threadIds: Set<string>) {
+    threadIds.forEach((id) => fetch(`${API_URL}/api/inbox/${id}/archive`, { method: "POST" }));
+    setMessages((prev) => (prev ? prev.filter((m) => !threadIds.has(m.thread_id)) : prev));
+    setLastArchived(null); // bulk undo isn't supported, avoid a misleading single-item undo prompt
+    setCheckedIds(new Set());
+  }
+
+  function undoArchive() {
+    if (!lastArchived) return;
+    fetch(`${API_URL}/api/inbox/${lastArchived.thread_id}/unarchive`, { method: "POST" });
+    setMessages((prev) => (prev ? [lastArchived, ...prev] : prev));
+    setLastArchived(null);
   }
 
   function markRead(threadId: string) {
@@ -93,6 +114,16 @@ function InboxContent() {
       body: JSON.stringify({ read: true }),
     });
     setMessages((prev) => (prev ? prev.map((m) => (m.thread_id === threadId ? { ...m, unread: false } : m)) : prev));
+  }
+
+  function toggleStarred(threadId: string) {
+    const next = !messages?.find((m) => m.thread_id === threadId)?.starred;
+    fetch(`${API_URL}/api/inbox/${threadId}/star`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ starred: next }),
+    });
+    setMessages((prev) => (prev ? prev.map((m) => (m.thread_id === threadId ? { ...m, starred: next } : m)) : prev));
   }
 
   function open(threadId: string) {
@@ -118,13 +149,25 @@ function InboxContent() {
       }
       const data = await res.json();
       setSearchResults(data.messages);
-      setSelected(0);
+      setSelected(data.messages[0]?.thread_id ?? null);
     } finally {
       setSearching(false);
     }
   }
 
   const visibleMessages = searchResults ?? messages;
+
+  // Single source of truth for both display order and keyboard nav — every
+  // row a "j/k" press or an isSelected check can land on comes from here,
+  // keyed by thread_id, not array position. An index would silently point
+  // at the wrong row whenever a background inbox refetch reorders the
+  // underlying array between a hover and the next keypress.
+  const allUnread = (visibleMessages ?? []).filter((m) => m.unread);
+  const followUpItems = (visibleMessages ?? []).filter((m) => !m.unread && m.awaiting_reply);
+  const readItems = (visibleMessages ?? []).filter((m) => !m.unread && !m.awaiting_reply);
+  const unreadItems = showAllUnread ? allUnread : allUnread.slice(0, NEW_FOR_YOU_LIMIT);
+  const hiddenUnreadCount = allUnread.length - unreadItems.length;
+  const ordered = [...unreadItems, ...followUpItems, ...readItems];
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -134,23 +177,40 @@ function InboxContent() {
         setSearchOpen(true);
         return;
       }
-      if (!visibleMessages || visibleMessages.length === 0) return;
+      if (e.key === "z") {
+        undoArchive();
+        return;
+      }
+      if (ordered.length === 0) return;
+      const idx = ordered.findIndex((m) => m.thread_id === selected);
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
-        setSelected((i) => Math.min(i + 1, visibleMessages.length - 1));
+        setSelected(ordered[Math.min(idx + 1, ordered.length - 1)].thread_id);
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
-        setSelected((i) => Math.max(i - 1, 0));
+        setSelected(ordered[Math.max(idx - 1, 0)].thread_id);
+      } else if (idx === -1) {
+        return; // nothing selected yet — only nav keys pick an initial row
       } else if (e.key === "Enter" || e.key === "o") {
-        open(visibleMessages[selected].thread_id);
+        open(ordered[idx].thread_id);
       } else if (e.key === "x") {
-        archive(visibleMessages[selected].thread_id);
+        archive(ordered[idx].thread_id);
+      } else if (e.key === "s") {
+        toggleStarred(ordered[idx].thread_id);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleMessages, selected]);
+  }, [ordered, selected, lastArchived]);
+
+  useEffect(() => {
+    if (!lastArchived) return;
+    const t = setTimeout(() => setLastArchived(null), 6000);
+    return () => clearTimeout(t);
+  }, [lastArchived]);
+
+  const selectedMessage = messages?.find((m) => m.thread_id === selected) ?? null;
 
   const commands: Command[] = [
     { id: "reload", label: "Reload inbox", run: load },
@@ -158,17 +218,16 @@ function InboxContent() {
     { id: "chat", label: "Open AI chat", run: () => setChatOpen(true) },
     { id: "settings", label: "AI settings", run: () => router.push("/settings") },
     { id: "snippets", label: "Manage snippets", run: () => router.push("/snippets") },
-    ...(messages && messages[selected]
+    ...(selectedMessage
       ? [
-          { id: "open", label: "Open selected thread", run: () => open(messages[selected].thread_id) },
-          { id: "archive", label: "Archive selected thread", run: () => archive(messages[selected].thread_id) },
-          { id: "mark-read", label: "Mark selected as read", run: () => markRead(messages[selected].thread_id) },
+          { id: "open", label: "Open selected thread", run: () => open(selectedMessage.thread_id) },
+          { id: "archive", label: "Archive selected thread", run: () => archive(selectedMessage.thread_id) },
+          { id: "mark-read", label: "Mark selected as read", run: () => markRead(selectedMessage.thread_id) },
           {
             id: "reply-later",
             label: "Reply later — selected thread",
             run: () => {
-              const m = messages[selected];
-              replyLater.add([{ thread_id: m.thread_id, subject: m.subject, from: m.from }]);
+              replyLater.add([{ thread_id: selectedMessage.thread_id, subject: selectedMessage.subject, from: selectedMessage.from }]);
             },
           },
         ]
@@ -195,23 +254,13 @@ function InboxContent() {
     );
   }
   if (!messages) {
-    return <div className="min-h-screen flex items-center justify-center bg-white text-[#1a1a1a]">{palette}Loading…</div>;
+    return <>{palette}<LoaderScreen className="bg-white text-[#1a1a1a]" /></>;
   }
 
-  const visible = searchResults ?? messages;
   // ponytail: string-compares against the backend's "Jan 2" date label (no
   // year) — matches today correctly except right at a year boundary.
   const todayLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const todayCount = visible.filter((m) => m.date === todayLabel).length;
-  const allUnread = visible.filter((m) => m.unread);
-  const readItems = visible.filter((m) => !m.unread);
-  const unreadItems = showAllUnread ? allUnread : allUnread.slice(0, NEW_FOR_YOU_LIMIT);
-  const hiddenUnreadCount = allUnread.length - unreadItems.length;
-  const ordered = [...unreadItems, ...readItems];
-
-  function rowIndex(m: Message) {
-    return ordered.indexOf(m);
-  }
+  const todayCount = (visibleMessages ?? []).filter((m) => m.date === todayLabel).length;
 
   return (
     <div className="h-screen overflow-hidden bg-white text-[#1a1a1a] flex">
@@ -250,6 +299,7 @@ function InboxContent() {
             <SelectionToolbar
               count={checkedIds.size}
               onReplyLater={moveCheckedToReplyLater}
+              onArchive={() => archiveMany(checkedIds)}
               onClear={() => setCheckedIds(new Set())}
             />
             {ordered.length === 0 && (
@@ -271,10 +321,11 @@ function InboxContent() {
                     <Row
                       key={m.thread_id}
                       m={m}
-                      isSelected={rowIndex(m) === selected}
+                      isSelected={m.thread_id === selected}
                       isChecked={checkedIds.has(m.thread_id)}
-                      onHover={() => setSelected(rowIndex(m))}
+                      onHover={() => setSelected(m.thread_id)}
                       onToggleCheck={() => toggleChecked(m.thread_id)}
+                      onToggleStar={() => toggleStarred(m.thread_id)}
                     />
                   ))}
                 </div>
@@ -290,8 +341,32 @@ function InboxContent() {
               </div>
             )}
 
-            {readItems.length > 0 && (
+            {followUpItems.length > 0 && (
               <div className={unreadItems.length > 0 ? "mt-10" : ""}>
+                <div className="flex items-center gap-3 px-1 pb-4">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#f59e0b]" />
+                  <span className="text-[12px] font-bold tracking-tight text-gray-600">AWAITING REPLY</span>
+                  <span className="h-px flex-1 bg-black/10" />
+                  <span className="text-[13px] font-medium text-[#f59e0b]">{followUpItems.length}</span>
+                </div>
+                <div className="divide-y divide-black/[0.045]">
+                  {followUpItems.map((m) => (
+                    <Row
+                      key={m.thread_id}
+                      m={m}
+                      isSelected={m.thread_id === selected}
+                      isChecked={checkedIds.has(m.thread_id)}
+                      onHover={() => setSelected(m.thread_id)}
+                      onToggleCheck={() => toggleChecked(m.thread_id)}
+                      onToggleStar={() => toggleStarred(m.thread_id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {readItems.length > 0 && (
+              <div className={unreadItems.length > 0 || followUpItems.length > 0 ? "mt-10" : ""}>
                 <div className="flex items-center gap-3 px-1 pb-4">
                   <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
                   <span className="text-[12px] font-bold tracking-tight text-gray-600">PREVIOUSLY SEEN</span>
@@ -302,10 +377,11 @@ function InboxContent() {
                     <Row
                       key={m.thread_id}
                       m={m}
-                      isSelected={rowIndex(m) === selected}
+                      isSelected={m.thread_id === selected}
                       isChecked={checkedIds.has(m.thread_id)}
-                      onHover={() => setSelected(rowIndex(m))}
+                      onHover={() => setSelected(m.thread_id)}
                       onToggleCheck={() => toggleChecked(m.thread_id)}
+                      onToggleStar={() => toggleStarred(m.thread_id)}
                     />
                   ))}
                 </div>
@@ -333,6 +409,14 @@ function InboxContent() {
 
       <AiChat open={chatOpen} onClose={() => setChatOpen(false)} />
       <ReplyLaterStack items={replyLater.items} onRemove={replyLater.remove} />
+      {lastArchived && (
+        <div className="fixed bottom-6 right-6 z-30 flex items-center gap-3 rounded-xl bg-[#111214] px-4 py-2.5 text-[13px] font-medium text-white shadow-lg">
+          <span>Archived</span>
+          <button type="button" onClick={undoArchive} className="text-[#818cf8] hover:text-white transition-colors">
+            Undo (z)
+          </button>
+        </div>
+      )}
     </div>
   );
 }
