@@ -64,7 +64,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	startScheduledSendWorker(oauthCfg, pool)
 
 	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
-	r.POST("/api/chat", chatHandler(pool, cfg.PromptsDir))
+	r.POST("/api/chat", chatHandler(oauthCfg, pool, cfg.PromptsDir))
 	r.GET("/api/avatar", avatarHandler)
 
 	settings := r.Group("/api/settings")

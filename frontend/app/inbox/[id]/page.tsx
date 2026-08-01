@@ -81,8 +81,16 @@ function EmailBody({ html, plainFallback }: { html: string; plainFallback: strin
 
 async function aiErrorMessage(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}));
-  if (body.error === "ai_not_configured") return "No AI key configured — add one in AI settings.";
-  return "AI request failed. Try again.";
+  switch (body.error) {
+    case "ai_not_configured":
+      return "No AI key configured — add one in AI settings.";
+    case "ai_invalid_key":
+      return "Your AI key was rejected by the provider — check it in AI settings.";
+    case "ai_rate_limited":
+      return "Your AI provider is rate-limiting requests — try again in a moment.";
+    default:
+      return "AI request failed. Try again.";
+  }
 }
 
 export default function ThreadPage() {

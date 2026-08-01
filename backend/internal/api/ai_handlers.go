@@ -32,6 +32,25 @@ func loadAIConfig(c *gin.Context, pool *pgxpool.Pool, encKey []byte) (ai.Config,
 	return ai.Config{Provider: provider, APIKey: apiKey}, true
 }
 
+// handleAIError maps a failed ai.Complete call to a response the frontend
+// can actually act on — "your key is wrong" and "you're rate limited" are
+// both distinguishable from a generic failure, instead of every provider
+// error collapsing into the same unhelpful message.
+func handleAIError(c *gin.Context, err error) {
+	var provErr *ai.ProviderError
+	if errors.As(err, &provErr) {
+		switch {
+		case provErr.InvalidKey():
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "ai_invalid_key"})
+			return
+		case provErr.RateLimited():
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "ai_rate_limited"})
+			return
+		}
+	}
+	c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
+}
+
 func threadText(t *gmailapi.ThreadDetail) string {
 	var b strings.Builder
 	for _, m := range t.Messages {
@@ -76,7 +95,7 @@ func summarizeThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir s
 		}
 		summary, err := ai.Complete(c.Request.Context(), aiCfg, system, threadText(thread))
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
+			handleAIError(c, err)
 			return
 		}
 		_ = db.SaveSummary(c.Request.Context(), pool, threadID, summary)
@@ -113,7 +132,7 @@ func draftReplyHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string
 		}
 		draft, err := ai.Complete(c.Request.Context(), aiCfg, system, threadText(thread))
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
+			handleAIError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"draft": draft})
@@ -172,7 +191,7 @@ func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir strin
 		userPrompt := searchUserPrompt(messages, query)
 		raw, err := ai.Complete(c.Request.Context(), aiCfg, system, userPrompt)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
+			handleAIError(c, err)
 			return
 		}
 
@@ -185,12 +204,20 @@ func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir strin
 	}
 }
 
+// chatCorpusSize is how many recent inbox threads (subject/from/snippet/date,
+// not full bodies) get handed to the model as context on every chat turn —
+// enough for "summarize my last N" or "anything from X" without an N-body
+// fetch on each message. A single thread's full content is still what
+// summarizeThreadHandler/draftReplyHandler use — this is deliberately the
+// cheaper, list-level view.
+const chatCorpusSize = 30
+
 // chatHandler is a stateless single-turn "ask anything" endpoint — no
 // conversation history is threaded through the model. The frontend keeps
 // the message list for display; each send is independent.
 // ponytail: no multi-turn context, add if replies need to reference
 // earlier turns in the same chat.
-func chatHandler(pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
+func chatHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Message string `json:"message" binding:"required"`
@@ -214,13 +241,35 @@ func chatHandler(pool *pgxpool.Pool, promptsDir string) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
 			return
 		}
-		reply, err := ai.Complete(c.Request.Context(), aiCfg, system, req.Message)
+
+		userPrompt := req.Message
+		if svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey); err == nil {
+			defer save()
+			if messages, err := gmailapi.ListInbox(c.Request.Context(), svc, chatCorpusSize); err == nil {
+				userPrompt = chatUserPrompt(messages, req.Message)
+			}
+			// Gmail list fetch failing isn't fatal to chat — fall back to
+			// answering without inbox context rather than blocking the reply.
+		}
+
+		reply, err := ai.Complete(c.Request.Context(), aiCfg, system, userPrompt)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
+			handleAIError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"reply": reply})
 	}
+}
+
+func chatUserPrompt(messages []gmailapi.MessageSummary, question string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Recent inbox (most recent first, %d threads):\n", len(messages))
+	for _, m := range messages {
+		fmt.Fprintf(&b, "- thread_id: %s | date: %s | from: %s | subject: %s | snippet: %s\n",
+			m.ThreadID, m.Date, m.From, m.Subject, m.Snippet)
+	}
+	fmt.Fprintf(&b, "\nUser: %s", question)
+	return b.String()
 }
 
 func searchUserPrompt(messages []gmailapi.MessageSummary, query string) string {

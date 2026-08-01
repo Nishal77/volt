@@ -139,6 +139,11 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, error]);
 
   useEffect(() => {
     if (!open) return;
@@ -194,9 +199,12 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(
-          body.error === "ai_not_configured" ? "No AI key configured — pick a provider below." : "Chat failed. Try again."
-        );
+        const messages: Record<string, string> = {
+          ai_not_configured: "No AI key configured — pick a provider below.",
+          ai_invalid_key: "Your AI key was rejected by the provider — check it in AI settings.",
+          ai_rate_limited: "Your AI provider is rate-limiting requests — try again in a moment.",
+        };
+        setError(messages[body.error] ?? "Chat failed. Try again.");
         return;
       }
       const data = await res.json();
@@ -218,6 +226,16 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
   function selectSession(s: ChatSession) {
     setMessages(s.messages);
     setSessionId(s.id);
+    setHistoryOpen(false);
+  }
+
+  function newChat() {
+    setMessages([]);
+    setSessionId(null);
+    setInput("");
+    setAttachment(null);
+    setAttachError(null);
+    setError(null);
     setHistoryOpen(false);
   }
 
@@ -259,7 +277,7 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
           </button>
         </div>
 
-        <div className={`flex-1 min-h-0 px-5 pt-4 pb-2 flex flex-col ${empty ? "justify-end" : "justify-start"}`}>
+        <div className={`flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-2 flex flex-col ${empty ? "justify-end" : "justify-start"}`}>
           {empty ? (
             <div className="mb-1">
               <p className="text-[19px] font-semibold tracking-tight text-[#1a1a1a] mb-3">Volt, how can I help?</p>
@@ -274,14 +292,16 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
 
                 I can summarize this email for you.
               </button>
-              <p className="text-[12px] text-gray-400 mt-3">Not tied to your inbox — use search or a thread's AI actions for that.</p>
+              <p className="text-[12px] text-gray-400 mt-3">
+                Sees your recent inbox (subjects, senders, snippets) — open a thread and use its AI Summarize for full email content.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
               {messages.map((m, i) => (
                 <div key={i} className={`max-w-[88%] ${m.role === "user" ? "ml-auto" : ""}`}>
                   <div
-                    className={`rounded-xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${m.role === "user" ? "bg-[#4f46e5] text-white" : "bg-gray-100 text-[#1a1a1a]"
+                    className={`rounded-xl px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words ${m.role === "user" ? "bg-[#4f46e5] text-white" : "bg-gray-100 text-[#1a1a1a]"
                       }`}
                   >
                     {m.text}
@@ -294,6 +314,7 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
             </div>
           )}
           {error && <p className="text-[13.5px] text-red-600 mt-2">{error}</p>}
+          <div ref={messagesEndRef} />
         </div>
 
         <div className="border-t border-black/[0.06] p-3.5 space-y-2.5">
@@ -357,7 +378,19 @@ export function AiChat({ open, onClose }: { open: boolean; onClose: () => void }
             </div>
           </form>
           <div className="flex items-center justify-between">
-            <ProviderTrigger status={status} onSaved={setStatus} />
+            <div className="flex items-center gap-3">
+              <ProviderTrigger status={status} onSaved={setStatus} />
+              <button
+                type="button"
+                onClick={newChat}
+                disabled={empty}
+                aria-label="New chat"
+                className="shrink-0 flex items-center gap-1.5 text-[13px] font-medium text-gray-500 hover:text-[#1a1a1a] disabled:opacity-40 transition-colors"
+              >
+                <HugeiconsIcon icon={Add01Icon} size={16} />
+                New chat
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => (historyOpen ? setHistoryOpen(false) : openHistory())}
@@ -546,6 +579,7 @@ function ProviderModal({
   const [query, setQuery] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const providerList = (Object.keys(PROVIDERS) as ProviderId[]).filter((id) =>
     (PROVIDERS[id].name + PROVIDERS[id].tagline).toLowerCase().includes(query.toLowerCase())
@@ -554,12 +588,24 @@ function ProviderModal({
   async function save() {
     if (!selected || !apiKey.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      await fetch(`${API_URL}/api/settings/ai-key`, {
+      const res = await fetch(`${API_URL}/api/settings/ai-key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: selected, api_key: apiKey }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setSaveError(
+          body.error === "ai_invalid_key"
+            ? "That key was rejected by the provider — double-check it."
+            : body.error === "ai_rate_limited"
+              ? "The provider is rate-limiting right now — try again in a moment."
+              : "Couldn't verify that key. Try again."
+        );
+        return;
+      }
       onSaved({ configured: true, provider: selected });
     } finally {
       setSaving(false);
@@ -609,8 +655,9 @@ function ProviderModal({
             disabled={saving || !apiKey.trim()}
             className="w-full rounded-xl bg-[#111214] hover:bg-black text-white text-[14px] font-semibold py-3 shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_20px_rgba(0,0,0,0.18)] hover:shadow-[0_1px_2px_rgba(0,0,0,0.35),0_10px_28px_rgba(0,0,0,0.28)] hover:-translate-y-px active:translate-y-0 disabled:opacity-40 disabled:shadow-none disabled:hover:translate-y-0 transition-all"
           >
-            {saving ? "Connecting…" : "Continue"}
+            {saving ? "Verifying key…" : "Continue"}
           </button>
+          {saveError && <p className="text-[13px] text-red-600 mt-3">{saveError}</p>}
         </div>
       </Overlay>
     );

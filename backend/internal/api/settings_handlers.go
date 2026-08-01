@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Nishal77/volt/backend/internal/ai"
 	"github.com/Nishal77/volt/backend/internal/db"
 )
 
@@ -26,6 +27,12 @@ func saveAIKeyHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		if !ok {
 			return
 		}
+
+		if err := ai.Validate(c.Request.Context(), ai.Config{Provider: req.Provider, APIKey: req.APIKey}); err != nil {
+			handleAIError(c, err)
+			return
+		}
+
 		if err := db.SaveAIKey(c.Request.Context(), pool, encKey, req.Provider, req.APIKey); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "save_failed"})
 			return

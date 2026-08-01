@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<{ configured: boolean; provider?: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/api/settings/ai-key`)
@@ -21,12 +22,24 @@ export default function SettingsPage() {
   async function save() {
     if (!apiKey.trim()) return;
     setSaving(true);
+    setError(null);
     try {
-      await fetch(`${API_URL}/api/settings/ai-key`, {
+      const res = await fetch(`${API_URL}/api/settings/ai-key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, api_key: apiKey }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(
+          body.error === "ai_invalid_key"
+            ? "That key was rejected by the provider — double-check it and try again."
+            : body.error === "ai_rate_limited"
+              ? "The provider is rate-limiting right now — try again in a moment."
+              : "Couldn't verify that key. Try again."
+        );
+        return;
+      }
       setStatus({ configured: true, provider });
       setApiKey("");
     } finally {
@@ -67,11 +80,12 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={save}
-            disabled={saving}
+            disabled={saving || !apiKey.trim()}
             className="px-4 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-60 text-sm"
           >
-            {saving ? "Saving…" : "Save key"}
+            {saving ? "Verifying key…" : "Save key"}
           </button>
+          {error && <p className="text-sm text-red-400">{error}</p>}
         </div>
       </div>
     </div>

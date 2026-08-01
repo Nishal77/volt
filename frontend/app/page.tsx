@@ -46,6 +46,25 @@ const COMPARISON = [
   },
 ];
 
+type ComparisonCell = true | false | string;
+
+const COMPARISON_TABLE: { feature: string; volt: ComparisonCell; superhuman: ComparisonCell; gmail: ComparisonCell }[] = [
+  { feature: "Self-hosted, your own server", volt: true, superhuman: false, gmail: false },
+  { feature: "Open source (Apache 2.0)", volt: true, superhuman: false, gmail: false },
+  { feature: "Pricing", volt: "Free", superhuman: "$30/mo", gmail: "Free (ads) / Workspace" },
+  { feature: "AI cost model", volt: "BYO key, $0 markup", superhuman: "Bundled subscription", gmail: "Bundled (Gemini)" },
+  { feature: "Encryption you can verify yourself", volt: true, superhuman: false, gmail: false },
+  { feature: "Keyboard-first, zero mouse required", volt: true, superhuman: true, gmail: "Basic shortcuts" },
+  { feature: "Native MCP / agent integration", volt: true, superhuman: false, gmail: false },
+  { feature: "Read receipts / open tracking", volt: "Never", superhuman: "On by default", gmail: "No" },
+];
+
+function ComparisonCellValue({ value }: { value: ComparisonCell }) {
+  if (value === true) return <span className="text-semantic-up font-semibold">✓</span>;
+  if (value === false) return <span className="text-muted">—</span>;
+  return <span className="text-body">{value}</span>;
+}
+
 export default function Home() {
   const [copied, setCopied] = useState(false);
 
@@ -208,6 +227,39 @@ export default function Home() {
           <h2 className="text-3xl sm:text-4xl font-normal tracking-tight text-center max-w-2xl mx-auto">
             Every other fast inbox asks you to trust someone else.
           </h2>
+
+          <div className="mt-14 overflow-x-auto rounded-xl border border-hairline bg-canvas">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b border-hairline">
+                  <th className="text-left font-medium text-muted px-6 py-4">Feature</th>
+                  <th className="text-left font-semibold text-primary px-6 py-4 bg-primary/[0.04]">Volt</th>
+                  <th className="text-left font-medium text-ink px-6 py-4">Superhuman</th>
+                  <th className="text-left font-medium text-ink px-6 py-4">Gmail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARISON_TABLE.map((row) => (
+                  <tr key={row.feature} className="border-b border-hairline last:border-0">
+                    <td className="px-6 py-4 text-body">{row.feature}</td>
+                    <td className="px-6 py-4 bg-primary/[0.04] font-medium">
+                      <ComparisonCellValue value={row.volt} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <ComparisonCellValue value={row.superhuman} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <ComparisonCellValue value={row.gmail} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-muted text-center">
+            Competitor details reflect public product positioning as of writing — verify against each vendor before quoting.
+          </p>
+
           <div className="mt-14 grid sm:grid-cols-3 gap-6">
             {COMPARISON.map((c) => (
               <div key={c.who} className="rounded-xl bg-canvas border border-hairline p-8">

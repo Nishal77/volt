@@ -19,6 +19,30 @@ type Config struct {
 	APIKey   string
 }
 
+// ProviderError wraps a non-200 response from an AI provider with its HTTP
+// status, so callers can distinguish "your key is wrong" (401/403) from
+// "you're rate limited" (429) from everything else, instead of collapsing
+// every failure into one generic message.
+type ProviderError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *ProviderError) Error() string {
+	return fmt.Sprintf("ai: provider returned %d: %s", e.StatusCode, e.Body)
+}
+
+func (e *ProviderError) InvalidKey() bool  { return e.StatusCode == 401 || e.StatusCode == 403 }
+func (e *ProviderError) RateLimited() bool { return e.StatusCode == 429 }
+
+// Validate makes one cheap round-trip to the provider to confirm the key
+// actually works, before it's saved — so a typo'd or revoked key is caught
+// immediately instead of surfacing as a mystery failure on first real use.
+func Validate(ctx context.Context, cfg Config) error {
+	_, err := Complete(ctx, cfg, "", "Reply with just: OK")
+	return err
+}
+
 // LoadPrompt reads docs/prompts/<name>.md, the app's single source of
 // truth for prompt text — never duplicated as a string literal in code.
 func LoadPrompt(promptsDir, name string) (string, error) {
@@ -173,7 +197,7 @@ func doRequest(req *http.Request) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ai: provider returned %d: %s", resp.StatusCode, b)
+		return nil, &ProviderError{StatusCode: resp.StatusCode, Body: string(b)}
 	}
 	return b, nil
 }
