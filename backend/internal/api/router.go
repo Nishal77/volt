@@ -47,6 +47,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	inbox := r.Group("/api/inbox")
 	inbox.GET("", listInboxHandler(oauthCfg, pool))
 	inbox.GET("/:id", getThreadHandler(oauthCfg, pool))
+	inbox.GET("/:id/attachments/:messageId/:attachmentId", getAttachmentHandler(oauthCfg, pool))
 	inbox.POST("/:id/archive", archiveThreadHandler(oauthCfg, pool))
 	inbox.POST("/:id/unarchive", unarchiveThreadHandler(oauthCfg, pool))
 	inbox.POST("/:id/read", setReadHandler(oauthCfg, pool))
@@ -66,6 +67,7 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	r.GET("/api/search", searchInboxHandler(oauthCfg, pool, cfg.PromptsDir))
 	r.POST("/api/chat", chatHandler(oauthCfg, pool, cfg.PromptsDir))
 	r.GET("/api/avatar", avatarHandler)
+	r.GET("/api/prompts", promptsHandler(cfg.PromptsDir))
 
 	settings := r.Group("/api/settings")
 	settings.POST("/ai-key", saveAIKeyHandler(pool))

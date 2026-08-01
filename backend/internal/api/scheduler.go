@@ -55,7 +55,7 @@ func sendDueScheduled(cfg *oauth2.Config, pool *pgxpool.Pool) {
 	defer save()
 
 	for _, s := range due {
-		if err := gmailapi.Reply(ctx, svc, s.ThreadID, s.Body); err != nil {
+		if err := gmailapi.Reply(ctx, svc, s.ThreadID, s.Body, nil); err != nil {
 			log.Printf("scheduled send %d for thread %s failed, won't retry: %v", s.ID, s.ThreadID, err)
 			_ = db.MarkScheduledSendFailed(ctx, pool, s.ID)
 			continue

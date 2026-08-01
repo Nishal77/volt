@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCommandPalette, type Command } from "../../components/CommandPalette";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowLeft01Icon, FileDiffIcon } from "@hugeicons/core-free-icons";
 import { applyVariables, isTypingTarget, loadSnippets } from "../../lib/snippets";
+import { withSignature } from "../../lib/signature";
 import { LoaderScreen } from "../../components/Loader";
 import { ShortcutHelp } from "../../components/ShortcutHelp";
+
+type Attachment = { attachment_id: string; filename: string; mime_type: string; size: number };
 
 type Message = {
   id: string;
@@ -17,6 +22,7 @@ type Message = {
   body: string;
   body_html: string;
   unread: boolean;
+  attachments: Attachment[];
 };
 
 type Thread = {
@@ -35,6 +41,12 @@ function decodeEntities(text: string): string {
     if (code[0] === "#") return String.fromCharCode(Number(code.slice(1)));
     return HTML_ENTITIES[code.toLowerCase()] ?? match;
   });
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function senderName(from: string): string {
@@ -110,7 +122,10 @@ export default function ThreadPage() {
   const [scheduled, setScheduled] = useState<string | null>(null);
   const [minScheduleAt] = useState(() => new Date(Date.now() + 60000).toISOString().slice(0, 16));
   const [helpOpen, setHelpOpen] = useState(false);
+  const [outgoing, setOutgoing] = useState<{ filename: string; mime_type: string; data: string }[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/api/inbox/${id}`)
@@ -143,16 +158,45 @@ export default function ThreadPage() {
     router.push("/inbox");
   }
 
+  const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // matches backend maxAttachmentBytes
+
+  function handleAttach(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setAttachError(null);
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachError(`${file.name} is too large — keep attachments under 10MB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? "");
+      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      setOutgoing((prev) => [...prev, { filename: file.name, mime_type: file.type || "application/octet-stream", data: base64 }]);
+    };
+    reader.onerror = () => setAttachError(`Couldn't read ${file.name}.`);
+    reader.readAsDataURL(file);
+  }
+
+  function removeOutgoing(filename: string) {
+    setOutgoing((prev) => prev.filter((a) => a.filename !== filename));
+  }
+
   async function sendReply(e: FormEvent) {
     e.preventDefault();
     if (!replyBody.trim()) return;
     setSending(true);
     try {
-      await fetch(`${API_URL}/api/inbox/${id}/reply`, {
+      const res = await fetch(`${API_URL}/api/inbox/${id}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: replyBody }),
+        body: JSON.stringify({ body: withSignature(replyBody), attachments: outgoing }),
       });
+      if (!res.ok) {
+        setAttachError("Couldn't send — check your attachments and try again.");
+        return;
+      }
       router.push("/inbox");
     } finally {
       setSending(false);
@@ -172,7 +216,7 @@ export default function ThreadPage() {
       const res = await fetch(`${API_URL}/api/inbox/${id}/schedule`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: replyBody, send_at: sendAt.toISOString() }),
+        body: JSON.stringify({ body: withSignature(replyBody), send_at: sendAt.toISOString() }),
       });
       if (!res.ok) {
         setAiError("Couldn't schedule the send. Try again.");
@@ -224,6 +268,33 @@ export default function ThreadPage() {
     replyRef.current?.focus();
   }
 
+  // Types ";shortcut" then a space/newline to expand a snippet by name
+  // (spaces stripped, case-insensitive) — mirrors the command-palette
+  // "Insert snippet" entries, just without leaving the compose box.
+  function handleReplyChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    const cursor = e.target.selectionStart ?? value.length;
+    const justTyped = value[cursor - 1];
+    if (justTyped !== " " && justTyped !== "\n") {
+      setReplyBody(value);
+      return;
+    }
+    const before = value.slice(0, cursor - 1);
+    const match = before.match(/(?:^|\s);(\w+)$/);
+    if (!match) {
+      setReplyBody(value);
+      return;
+    }
+    const shortcut = match[1].toLowerCase();
+    const snippet = loadSnippets().find((s) => s.name.toLowerCase().replace(/\s+/g, "") === shortcut);
+    if (!snippet) {
+      setReplyBody(value);
+      return;
+    }
+    const triggerStart = cursor - 1 - match[1].length - 1;
+    setReplyBody(value.slice(0, triggerStart) + applyVariables(snippet.body) + value.slice(cursor - 1));
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) {
@@ -272,7 +343,9 @@ export default function ThreadPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white text-[#1a1a1a]">
         {palette}
-        Failed to load thread: {error}
+        {error === "db_unreachable"
+          ? "Can't reach the database — check that it's running and reload."
+          : `Failed to load thread: ${error}`}
       </div>
     );
   }
@@ -289,7 +362,8 @@ export default function ThreadPage() {
 
       <div className="relative max-w-2xl mx-auto px-6 py-8">
         <Link href="/inbox" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#1a1a1a] transition-colors mb-6">
-          ← Back to inbox
+          <HugeiconsIcon icon={ArrowLeft01Icon} size={16} />
+          Back to inbox
         </Link>
 
         {subject && (
@@ -345,6 +419,21 @@ export default function ThreadPage() {
                 <div className="text-xs text-gray-400 shrink-0 tabular-nums">{m.date}</div>
               </div>
               <EmailBody html={m.body_html} plainFallback={decodeEntities(m.body)} />
+              {m.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {m.attachments.map((a) => (
+                    <a
+                      key={a.attachment_id}
+                      href={`${API_URL}/api/inbox/${id}/attachments/${m.id}/${a.attachment_id}?filename=${encodeURIComponent(a.filename)}`}
+                      className="flex items-center gap-2 rounded-lg border border-black/[0.08] bg-black/[0.02] hover:bg-black/[0.04] px-3 py-2 text-[13px] text-[#1a1a1a] transition-colors"
+                    >
+                      <HugeiconsIcon icon={FileDiffIcon} size={15} />
+                      <span className="truncate max-w-[200px]">{a.filename}</span>
+                      <span className="text-gray-400 shrink-0">{formatBytes(a.size)}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -359,8 +448,8 @@ export default function ThreadPage() {
           <textarea
             ref={replyRef}
             value={replyBody}
-            onChange={(e) => setReplyBody(e.target.value)}
-            placeholder="Reply… (r to focus, ⌘/Ctrl+Enter to send)"
+            onChange={handleReplyChange}
+            placeholder="Reply… (r to focus, ;snippet-name + space to expand, ⌘/Ctrl+Enter to send)"
             rows={4}
             className="w-full rounded-xl bg-black/[0.03] border border-black/[0.06] p-3.5 text-sm placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#4f46e5]/20 focus:border-[#4f46e5]/30 transition-shadow"
           />
@@ -373,7 +462,37 @@ export default function ThreadPage() {
               className="mt-3 rounded-xl bg-black/[0.03] border border-black/[0.06] px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#4f46e5]/20"
             />
           )}
+          {attachError && <p className="mt-2 text-[13px] text-red-600">{attachError}</p>}
+          {outgoing.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {outgoing.map((a) => (
+                <span
+                  key={a.filename}
+                  className="flex items-center gap-2 rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-1.5 text-[13px] text-[#1a1a1a]"
+                >
+                  <HugeiconsIcon icon={FileDiffIcon} size={15} />
+                  <span className="truncate max-w-[160px]">{a.filename}</span>
+                  <button type="button" onClick={() => removeOutgoing(a.filename)} className="text-gray-400 hover:text-red-500 leading-none">
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="mt-3 flex items-center gap-2">
+            {!scheduling && (
+              <>
+                <input ref={attachInputRef} type="file" onChange={handleAttach} className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => attachInputRef.current?.click()}
+                  aria-label="Attach a file"
+                  className="px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:text-[#1a1a1a] transition-colors"
+                >
+                  <HugeiconsIcon icon={FileDiffIcon} size={17} />
+                </button>
+              </>
+            )}
             {scheduling ? (
               <>
                 <button

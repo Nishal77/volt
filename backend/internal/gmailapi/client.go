@@ -1,11 +1,14 @@
 package gmailapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/mail"
+	"net/textproto"
 	"regexp"
 	"strings"
 	"sync"
@@ -81,14 +84,48 @@ type MessageSummary struct {
 const followUpAfter = 3 * 24 * time.Hour
 
 type MessageDetail struct {
-	ID       string `json:"id"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Subject  string `json:"subject"`
-	Date     string `json:"date"`
-	Body     string `json:"body"`      // plain text, for AI prompts and no-HTML fallback
-	BodyHTML string `json:"body_html"` // original formatting + images, for display
-	Unread   bool   `json:"unread"`
+	ID          string       `json:"id"`
+	From        string       `json:"from"`
+	To          string       `json:"to"`
+	Subject     string       `json:"subject"`
+	Date        string       `json:"date"`
+	Body        string       `json:"body"`      // plain text, for AI prompts and no-HTML fallback
+	BodyHTML    string       `json:"body_html"` // original formatting + images, for display
+	Unread      bool         `json:"unread"`
+	Attachments []Attachment `json:"attachments"`
+}
+
+type Attachment struct {
+	AttachmentID string `json:"attachment_id"`
+	Filename     string `json:"filename"`
+	MimeType     string `json:"mime_type"`
+	Size         int64  `json:"size"`
+}
+
+// collectAttachments walks the MIME tree for parts that carry a filename
+// and an attachmentId — real attachments, not the inline images
+// collectCIDs already handles for HTML display.
+func collectAttachments(part *gmail.MessagePart) []Attachment {
+	out := []Attachment{}
+	var walk func(p *gmail.MessagePart)
+	walk = func(p *gmail.MessagePart) {
+		if p == nil {
+			return
+		}
+		if p.Filename != "" && p.Body != nil && p.Body.AttachmentId != "" {
+			out = append(out, Attachment{
+				AttachmentID: p.Body.AttachmentId,
+				Filename:     p.Filename,
+				MimeType:     p.MimeType,
+				Size:         p.Body.Size,
+			})
+		}
+		for _, child := range p.Parts {
+			walk(child)
+		}
+	}
+	walk(part)
+	return out
 }
 
 type ThreadDetail struct {
@@ -178,6 +215,19 @@ func summarize(ctx context.Context, svc *gmail.Service, threads []*gmail.Thread)
 	return summaries, nil
 }
 
+// GetAttachment downloads one attachment's raw bytes by message + attachment ID.
+func GetAttachment(ctx context.Context, svc *gmail.Service, messageID, attachmentID string) ([]byte, error) {
+	att, err := svc.Users.Messages.Attachments.Get("me", messageID, attachmentID).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("gmailapi: get attachment %s: %w", attachmentID, err)
+	}
+	data, err := base64.URLEncoding.WithPadding(base64.NoPadding).DecodeString(att.Data)
+	if err != nil {
+		return nil, fmt.Errorf("gmailapi: decode attachment %s: %w", attachmentID, err)
+	}
+	return data, nil
+}
+
 func GetThread(ctx context.Context, svc *gmail.Service, threadID string) (*ThreadDetail, error) {
 	full, err := svc.Users.Threads.Get("me", threadID).Format("full").Context(ctx).Do()
 	if err != nil {
@@ -187,14 +237,15 @@ func GetThread(ctx context.Context, svc *gmail.Service, threadID string) (*Threa
 	messages := make([]MessageDetail, 0, len(full.Messages))
 	for _, m := range full.Messages {
 		messages = append(messages, MessageDetail{
-			ID:       m.Id,
-			From:     header(m, "From"),
-			To:       header(m, "To"),
-			Subject:  header(m, "Subject"),
-			Date:     header(m, "Date"),
-			Body:     extractBody(m.Payload),
-			BodyHTML: extractBodyHTML(m.Payload),
-			Unread:   hasLabel(m.LabelIds, "UNREAD"),
+			ID:          m.Id,
+			From:        header(m, "From"),
+			To:          header(m, "To"),
+			Subject:     header(m, "Subject"),
+			Date:        header(m, "Date"),
+			Body:        extractBody(m.Payload),
+			BodyHTML:    extractBodyHTML(m.Payload),
+			Unread:      hasLabel(m.LabelIds, "UNREAD"),
+			Attachments: collectAttachments(m.Payload),
 		})
 	}
 	return &ThreadDetail{ThreadID: threadID, Messages: messages}, nil
@@ -250,7 +301,15 @@ func SetStarred(ctx context.Context, svc *gmail.Service, threadID string, starre
 
 // Reply sends a plain-text reply into an existing thread, addressed back to
 // the last message's sender with proper In-Reply-To/References threading.
-func Reply(ctx context.Context, svc *gmail.Service, threadID, body string) error {
+// OutgoingAttachment is a file to attach to a reply, content already
+// decoded — the handler reads the upload, this just puts it on the wire.
+type OutgoingAttachment struct {
+	Filename string
+	MimeType string
+	Data     []byte
+}
+
+func Reply(ctx context.Context, svc *gmail.Service, threadID, body string, attachments []OutgoingAttachment) error {
 	full, err := svc.Users.Threads.Get("me", threadID).
 		Format("metadata").MetadataHeaders("Subject", "From", "Message-Id", "References").
 		Context(ctx).Do()
@@ -264,10 +323,13 @@ func Reply(ctx context.Context, svc *gmail.Service, threadID, body string) error
 
 	messageID := header(last, "Message-Id")
 	references := strings.TrimSpace(header(last, "References") + " " + messageID)
-	raw := buildReplyRaw(header(last, "From"), replySubject(header(last, "Subject")), messageID, references, body)
+	raw, err := buildReplyRaw(header(last, "From"), replySubject(header(last, "Subject")), messageID, references, body, attachments)
+	if err != nil {
+		return fmt.Errorf("gmailapi: build reply on thread %s: %w", threadID, err)
+	}
 
 	_, err = svc.Users.Messages.Send("me", &gmail.Message{
-		Raw:      base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString([]byte(raw)),
+		Raw:      base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(raw),
 		ThreadId: threadID,
 	}).Context(ctx).Do()
 	if err != nil {
@@ -276,11 +338,48 @@ func Reply(ctx context.Context, svc *gmail.Service, threadID, body string) error
 	return nil
 }
 
-func buildReplyRaw(to, subject, inReplyTo, references, body string) string {
-	return fmt.Sprintf(
-		"To: %s\r\nSubject: %s\r\nIn-Reply-To: %s\r\nReferences: %s\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\n%s",
-		to, subject, inReplyTo, references, body,
-	)
+// buildReplyRaw returns an RFC 822 message. Plain text/plain when there are
+// no attachments (unchanged from before); multipart/mixed with base64 file
+// parts when there are — stdlib mime/multipart builds it, no hand-rolled
+// boundary string.
+func buildReplyRaw(to, subject, inReplyTo, references, body string, attachments []OutgoingAttachment) ([]byte, error) {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "To: %s\r\nSubject: %s\r\nIn-Reply-To: %s\r\nReferences: %s\r\n", to, subject, inReplyTo, references)
+
+	if len(attachments) == 0 {
+		fmt.Fprintf(&buf, "Content-Type: text/plain; charset=\"UTF-8\"\r\n\r\n%s", body)
+		return buf.Bytes(), nil
+	}
+
+	mw := multipart.NewWriter(&buf)
+	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=%q\r\n\r\n", mw.Boundary())
+
+	textPart, err := mw.CreatePart(textproto.MIMEHeader{"Content-Type": {`text/plain; charset="UTF-8"`}})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := textPart.Write([]byte(body)); err != nil {
+		return nil, err
+	}
+
+	for _, a := range attachments {
+		filePart, err := mw.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {a.MimeType},
+			"Content-Transfer-Encoding": {"base64"},
+			"Content-Disposition":       {fmt.Sprintf("attachment; filename=%q", a.Filename)},
+		})
+		if err != nil {
+			return nil, err
+		}
+		enc := base64.StdEncoding.EncodeToString(a.Data)
+		if _, err := filePart.Write([]byte(enc)); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func replySubject(subject string) string {

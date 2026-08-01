@@ -230,6 +230,7 @@ function InboxContent() {
     { id: "search", label: "Search inbox with AI", run: () => setSearchOpen(true) },
     { id: "chat", label: "Open AI chat", run: () => setChatOpen(true) },
     { id: "settings", label: "AI settings", run: () => router.push("/settings") },
+    { id: "prompts", label: "View AI prompts", run: () => router.push("/prompts") },
     { id: "snippets", label: "Manage snippets", run: () => router.push("/snippets") },
     { id: "shortcuts", label: "Show keyboard shortcuts", run: () => setHelpOpen(true) },
     ...(selectedMessage
@@ -263,7 +264,9 @@ function InboxContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white text-[#1a1a1a]">
         {palette}
-        Failed to load inbox: {error}
+        {error === "db_unreachable"
+          ? "Can't reach the database — check that it's running and reload."
+          : `Failed to load inbox: ${error}`}
       </div>
     );
   }
