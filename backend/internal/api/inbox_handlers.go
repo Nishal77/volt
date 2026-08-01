@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -8,10 +9,41 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/oauth2"
+	"google.golang.org/api/gmail/v1"
 
 	"github.com/Nishal77/volt/backend/internal/db"
 	"github.com/Nishal77/volt/backend/internal/gmailapi"
 )
+
+// applyLabelMutation is the one place the unlock -> gmailService -> mutate
+// -> respond recipe lives. Every thread label mutation (archive, unarchive,
+// mark read, star) shares this exact shape and differs only in which
+// gmailapi call runs and what the success body says.
+func applyLabelMutation(
+	cfg *oauth2.Config,
+	pool *pgxpool.Pool,
+	successBody gin.H,
+	mutate func(ctx context.Context, svc *gmail.Service, threadID string) error,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		encKey, ok := requireUnlocked(c)
+		if !ok {
+			return
+		}
+		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
+		if err != nil {
+			handleGmailError(c, err)
+			return
+		}
+		defer save()
+
+		if err := mutate(c.Request.Context(), svc, c.Param("id")); err != nil {
+			handleGmailError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, successBody)
+	}
+}
 
 const inboxMaxResults = 25
 
@@ -100,24 +132,11 @@ func getThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 }
 
 func archiveThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		encKey, ok := requireUnlocked(c)
-		if !ok {
-			return
-		}
-		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
-		if err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		defer save()
+	return applyLabelMutation(cfg, pool, gin.H{"status": "archived"}, gmailapi.Archive)
+}
 
-		if err := gmailapi.Archive(c.Request.Context(), svc, c.Param("id")); err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "archived"})
-	}
+func unarchiveThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
+	return applyLabelMutation(cfg, pool, gin.H{"status": "unarchived"}, gmailapi.Unarchive)
 }
 
 type setReadRequest struct {
@@ -131,44 +150,9 @@ func setReadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body"})
 			return
 		}
-
-		encKey, ok := requireUnlocked(c)
-		if !ok {
-			return
-		}
-		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
-		if err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		defer save()
-
-		if err := gmailapi.SetRead(c.Request.Context(), svc, c.Param("id"), req.Read); err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	}
-}
-
-func unarchiveThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		encKey, ok := requireUnlocked(c)
-		if !ok {
-			return
-		}
-		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
-		if err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		defer save()
-
-		if err := gmailapi.Unarchive(c.Request.Context(), svc, c.Param("id")); err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "unarchived"})
+		applyLabelMutation(cfg, pool, gin.H{"status": "ok"}, func(ctx context.Context, svc *gmail.Service, id string) error {
+			return gmailapi.SetRead(ctx, svc, id, req.Read)
+		})(c)
 	}
 }
 
@@ -183,23 +167,9 @@ func setStarredHandler(cfg *oauth2.Config, pool *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body"})
 			return
 		}
-
-		encKey, ok := requireUnlocked(c)
-		if !ok {
-			return
-		}
-		svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey)
-		if err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		defer save()
-
-		if err := gmailapi.SetStarred(c.Request.Context(), svc, c.Param("id"), req.Starred); err != nil {
-			handleGmailError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		applyLabelMutation(cfg, pool, gin.H{"status": "ok"}, func(ctx context.Context, svc *gmail.Service, id string) error {
+			return gmailapi.SetStarred(ctx, svc, id, req.Starred)
+		})(c)
 	}
 }
 

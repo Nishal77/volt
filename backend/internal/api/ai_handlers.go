@@ -51,6 +51,25 @@ func handleAIError(c *gin.Context, err error) {
 	c.JSON(http.StatusBadGateway, gin.H{"error": "ai_request_failed"})
 }
 
+// runPrompt loads the named prompt, calls the AI provider, and writes the
+// error response itself on failure. All four AI handlers share this exact
+// tail — load prompt, call provider, map errors — even though what they
+// build the user prompt from and what they do with the result differs
+// (thread text vs inbox corpus, cached vs not, JSON-parsed vs plain text).
+func runPrompt(c *gin.Context, promptsDir, promptName string, aiCfg ai.Config, userPrompt string) (string, bool) {
+	system, err := ai.LoadPrompt(promptsDir, promptName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
+		return "", false
+	}
+	reply, err := ai.Complete(c.Request.Context(), aiCfg, system, userPrompt)
+	if err != nil {
+		handleAIError(c, err)
+		return "", false
+	}
+	return reply, true
+}
+
 func threadText(t *gmailapi.ThreadDetail) string {
 	var b strings.Builder
 	for _, m := range t.Messages {
@@ -88,14 +107,8 @@ func summarizeThreadHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir s
 			return
 		}
 
-		system, err := ai.LoadPrompt(promptsDir, "summarize")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
-			return
-		}
-		summary, err := ai.Complete(c.Request.Context(), aiCfg, system, threadText(thread))
-		if err != nil {
-			handleAIError(c, err)
+		summary, ok := runPrompt(c, promptsDir, "summarize", aiCfg, threadText(thread))
+		if !ok {
 			return
 		}
 		_ = db.SaveSummary(c.Request.Context(), pool, threadID, summary)
@@ -125,14 +138,8 @@ func draftReplyHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string
 			return
 		}
 
-		system, err := ai.LoadPrompt(promptsDir, "draft")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
-			return
-		}
-		draft, err := ai.Complete(c.Request.Context(), aiCfg, system, threadText(thread))
-		if err != nil {
-			handleAIError(c, err)
+		draft, ok := runPrompt(c, promptsDir, "draft", aiCfg, threadText(thread))
+		if !ok {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"draft": draft})
@@ -183,15 +190,8 @@ func searchInboxHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir strin
 			return
 		}
 
-		system, err := ai.LoadPrompt(promptsDir, "search")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
-			return
-		}
-		userPrompt := searchUserPrompt(messages, query)
-		raw, err := ai.Complete(c.Request.Context(), aiCfg, system, userPrompt)
-		if err != nil {
-			handleAIError(c, err)
+		raw, ok := runPrompt(c, promptsDir, "search", aiCfg, searchUserPrompt(messages, query))
+		if !ok {
 			return
 		}
 
@@ -236,12 +236,6 @@ func chatHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string) gin.
 			return
 		}
 
-		system, err := ai.LoadPrompt(promptsDir, "chat")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "prompt_load_failed"})
-			return
-		}
-
 		userPrompt := req.Message
 		if svc, save, err := gmailService(c.Request.Context(), cfg, pool, encKey); err == nil {
 			defer save()
@@ -252,9 +246,8 @@ func chatHandler(cfg *oauth2.Config, pool *pgxpool.Pool, promptsDir string) gin.
 			// answering without inbox context rather than blocking the reply.
 		}
 
-		reply, err := ai.Complete(c.Request.Context(), aiCfg, system, userPrompt)
-		if err != nil {
-			handleAIError(c, err)
+		reply, ok := runPrompt(c, promptsDir, "chat", aiCfg, userPrompt)
+		if !ok {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"reply": reply})

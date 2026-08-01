@@ -13,10 +13,10 @@ import { ConnectGmail } from "./ConnectGmail";
 import { Row } from "./Row";
 import { SearchOverlay } from "./SearchOverlay";
 import { decodeEntities } from "./utils";
+import { orderInbox } from "./order";
 import type { Message } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
-const NEW_FOR_YOU_LIMIT = 7;
 
 export default function InboxPage() {
   return (
@@ -162,20 +162,10 @@ function InboxContent() {
   }
 
   const visibleMessages = searchResults ?? messages;
-
-  // Single source of truth for both display order and keyboard nav — every
-  // row a "j/k" press or an isSelected check can land on comes from here,
-  // keyed by thread_id, not array position. An index would silently point
-  // at the wrong row whenever a background inbox refetch reorders the
-  // underlying array between a hover and the next keypress.
-  const newsletterItems = (visibleMessages ?? []).filter((m) => m.newsletter);
-  const primary = (visibleMessages ?? []).filter((m) => !m.newsletter);
-  const allUnread = primary.filter((m) => m.unread);
-  const followUpItems = primary.filter((m) => !m.unread && m.awaiting_reply);
-  const readItems = primary.filter((m) => !m.unread && !m.awaiting_reply);
-  const unreadItems = showAllUnread ? allUnread : allUnread.slice(0, NEW_FOR_YOU_LIMIT);
-  const hiddenUnreadCount = allUnread.length - unreadItems.length;
-  const ordered = [...unreadItems, ...followUpItems, ...readItems, ...(showNewsletters ? newsletterItems : [])];
+  const { unreadItems, followUpItems, readItems, newsletterItems, hiddenUnreadCount, todayCount, ordered } = orderInbox(
+    visibleMessages,
+    { showAllUnread, showNewsletters }
+  );
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -273,11 +263,6 @@ function InboxContent() {
   if (!messages) {
     return <>{palette}<LoaderScreen className="bg-white text-[#1a1a1a]" /></>;
   }
-
-  // ponytail: string-compares against the backend's "Jan 2" date label (no
-  // year) — matches today correctly except right at a year boundary.
-  const todayLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const todayCount = (visibleMessages ?? []).filter((m) => m.date === todayLabel && !m.newsletter).length;
 
   return (
     <div className="h-screen overflow-hidden bg-white text-[#1a1a1a] flex">
