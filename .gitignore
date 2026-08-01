@@ -5,3 +5,5 @@ deploy/.env
 skills-lock.json
 CLAUDE.md
 CHANGELOG.md
+.claude/
+.claude-flow/
