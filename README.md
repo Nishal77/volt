@@ -56,18 +56,21 @@ receives before you send it anything.
 One command, one machine, nothing else to manage:
 
 ```bash
-curl -fsSL https://get.volt.dev | bash
+curl -fsSL https://volt-xi-rust.vercel.app/install.sh | bash
 ```
 
-No GitHub clone, no manual `.env` editing, no existing Docker install
-required. The script detects your OS, installs Docker if it's missing,
-pulls the latest release into `~/.volt`, walks you through creating a
-Google OAuth client, and opens `localhost:3000` once it's healthy.
+No GitHub clone, no manual `.env` editing. The script needs Docker
+already installed and running, clones Volt into `~/.volt`, and opens
+`localhost:3000` once it's healthy. It'll ask for your Google OAuth
+client the first time you open the app, no config file editing.
 
-Rather read it first before piping it into `bash` — reasonable instinct:
+Don't have Docker yet? Grab [Docker Desktop](https://docker.com/get-started)
+first, it's free.
+
+Rather read the script before piping it into `bash`, reasonable instinct:
 
 ```bash
-curl -fsSL https://get.volt.dev -o install.sh
+curl -fsSL https://volt-xi-rust.vercel.app/install.sh -o install.sh
 less install.sh
 bash install.sh
 ```
