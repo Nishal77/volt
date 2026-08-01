@@ -17,6 +17,7 @@ jobs:
           go-version-file: backend/go.mod
       - run: go build ./...
       - run: go vet ./...
+      - run: go test ./...
 
   frontend:
     runs-on: ubuntu-latest
@@ -28,4 +29,5 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run lint
+      - run: bun test
       - run: bun run build

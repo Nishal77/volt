@@ -2,72 +2,86 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Open-source, self-hostable, keyboard-first Gmail client with BYO-AI-key
-features and a native MCP server.
+A Gmail client you run yourself. Your inbox, your server, your AI key —
+Volt never sees your credentials in the clear, never touches your inference
+bill, and never sends an email without you clicking send.
 
-Your inbox, your server, your AI key. Volt is free, self-hosted, and
-encrypts your credentials with a key only you hold — see [Security](#security)
-below.
+![Volt demo](docs/demo.gif)
 
-Screenshots/GIF still pending — added once Phase 7's real self-host test
-is done and there's something worth showing off.
+## Why this exists
+
+Every fast, AI-powered email client on the market asks you to hand your
+inbox to someone else's cloud. Volt doesn't. It's a single Docker Compose
+stack you run on your own machine: Postgres, a Go backend, a Next.js
+frontend. Your Gmail token and AI key are encrypted with a passphrase only
+you know — not stored anywhere, not recoverable if you lose it, gone from
+memory the moment the process restarts.
+
+If that sounds like more responsibility than a hosted inbox, it is. That's
+the trade this project makes on purpose.
+
+## What you actually get
+
+- **Keyboard-first.** `j`/`k` to move, `x` to archive, `s` to star, `z` to
+  undo, `/` to search, `⌘K` for everything else. Press `?` any time for the
+  full list.
+- **Bring your own AI key.** Claude, OpenAI, Gemini, Groq, Kimi, or
+  OpenRouter — pick one, paste a key, it's verified against the provider
+  before it's ever saved. Summarize a thread, draft a reply, search your
+  inbox in plain English, or just ask the sidebar chat what's going on —
+  it can see your recent inbox, not just your last message.
+- **Send later, split inbox, follow-up nudges.** Newsletters sort
+  themselves out of your primary view automatically. Threads you sent and
+  never heard back on resurface after a few days. None of this needs AI —
+  it's just paying attention to headers Gmail already gives you.
+- **Real attachments.** View what people sent you, attach files to your
+  own replies, both go over actual MIME — not a workaround.
+- **A native MCP server.** Point Claude Code or Cursor at your own running
+  instance and ask it to read, search, organize, or draft in your real
+  inbox. There is no send tool. There has never been a send tool. That's
+  not a missing feature, it's the whole point.
+- **No read receipts.** Not deferred, not on a roadmap — Volt doesn't do
+  open tracking, full stop.
+
+## See exactly what it sends your AI
+
+Every prompt Volt uses — for summarizing, drafting, searching, chatting —
+lives in [`docs/prompts/`](docs/prompts/) as plain text files, loaded from
+disk at runtime. Not a string buried in code, not a black box: open
+`/prompts` in the running app and read the exact words your AI provider
+receives before you send it anything.
 
 ## Install
 
-One command, one machine, no separate infra to manage:
+One command, one machine, nothing else to manage:
 
 ```bash
 curl -fsSL https://get.volt.dev | bash
 ```
 
-This installs Volt as a local service on your machine — no GitHub clone,
-no manual `.env` editing, no existing Docker install required. The script:
+No GitHub clone, no manual `.env` editing, no existing Docker install
+required. The script detects your OS, installs Docker if it's missing,
+pulls the latest release into `~/.volt`, walks you through creating a
+Google OAuth client, and opens `localhost:3000` once it's healthy.
 
-1. Detects your OS (macOS / Linux) and installs Docker Engine if it isn't
-   already present.
-2. Pulls the latest tagged release of Volt into `~/.volt`.
-3. Walks you through creating a Google OAuth client (opens the Google Cloud
-   Console step for you, prompts for the client ID/secret).
-4. Generates your `.env` and starts the stack.
-5. Opens `http://localhost:3000` in your browser once the health check
-   passes.
-
-Prefer to read the script before running it (recommended for anything
-piped into `bash`)? Download it first:
+Rather read it first before piping it into `bash` — reasonable instinct:
 
 ```bash
 curl -fsSL https://get.volt.dev -o install.sh
-less install.sh        # review it
+less install.sh
 bash install.sh
 ```
 
-### Updating
+**Update:** `volt update` — pulls the latest release, rebuilds, restarts.
+Your data and passphrase are untouched.
 
-Volt checks for new releases on startup. To update to the latest version
-manually:
+**Uninstall:** `volt uninstall` — stops the stack, removes `~/.volt`.
+Nothing else was touched on your system.
 
-```bash
-volt update
-```
-
-This pulls the newest release, rebuilds the containers, and restarts the
-stack — your data and vault passphrase are untouched.
-
-### Uninstalling
+### Prefer to run it by hand?
 
 ```bash
-volt uninstall
-```
-
-Stops the stack and removes `~/.volt`. Nothing is left running or installed
-system-wide beyond Docker itself.
-
-### Manual install (no installer script)
-
-If you'd rather manage it yourself:
-
-```bash
-git clone https://github.com/your-repo/volt && cd volt/deploy
+git clone https://github.com/Nishal77/volt && cd volt/deploy
 cp .env.example .env   # add your own Google OAuth client
 docker compose up --build
 ```
@@ -75,32 +89,50 @@ docker compose up --build
 Full walkthrough: [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
 Something broke? [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
-## Security
+## How the security actually works
 
-Volt encrypts your Gmail OAuth token and AI provider key with AES-256-GCM.
-The encryption key itself is never stored anywhere — not in the database,
-not in an env var, not on disk.
+Your Gmail token and AI key are encrypted with AES-256-GCM. The key that
+encrypts them is never written anywhere — not the database, not an env
+var, not disk.
 
-Instead, the key is derived from a passphrase you set on first run
-(Argon2id — the same class of memory-hard KDF libsodium uses) and held in
-server process memory only, for that process's lifetime. Restart the
-server and it's gone; you unlock again with your passphrase before Gmail
-or AI features work.
+Instead, it's derived from a passphrase you choose on first run, using
+Argon2id (the same memory-hard KDF libsodium uses for this exact job), and
+held only in the server process's memory for as long as that process
+lives. Restart the container and the key is gone. You unlock again with
+your passphrase before Gmail or AI features work — every time, no
+exceptions, no backdoor.
 
-This means a stolen database dump plus a compromised server is still not
-enough to read your credentials — the key exists only where you put it: in
-your head, and briefly in memory while unlocked. There is no recovery
-mechanism if you lose the passphrase, by design.
+Practically: someone with your database dump *and* your server still can't
+read your credentials. The key only ever existed in your head and briefly
+in memory. If you lose the passphrase, there's no recovery — that's not a
+bug, it's what "zero-knowledge" actually has to mean.
 
-Details: [`docs/decisions/0003-zero-knowledge-vault.md`](docs/decisions/0003-zero-knowledge-vault.md).
+Full writeup: [`docs/decisions/0003-zero-knowledge-vault.md`](docs/decisions/0003-zero-knowledge-vault.md).
 
-## MCP Server
+## MCP server
 
-Point Claude Code or Cursor at your own running instance and ask it to
-read, search, or draft in your real inbox. Sending always stays a human
-clicking a button — no send tool exists. Setup: [`mcp-server/README.md`](mcp-server/README.md).
+```
+list_inbox · get_thread · search_inbox · draft_reply
+archive_thread · star_thread · mark_thread_read
+```
 
-## Self-hosting
+Seven tools, all read/organize/draft. No `send_email` tool exists in this
+codebase, on purpose — an AI can help you triage and write, but a human
+being clicks send. Setup: [`mcp-server/README.md`](mcp-server/README.md).
 
-See [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md), or
-`deploy/docker-compose.yml` / `deploy/.env.example` directly.
+## Built with
+
+Go (Gin) on the backend, Next.js on the frontend, Postgres for storage,
+Docker Compose to run it all. Every architecture decision that mattered
+enough to argue about is written down in
+[`docs/decisions/`](docs/decisions/) — not after the fact, the same day it
+was made.
+
+## Contributing
+
+Issues and PRs welcome. There's no separate contributing guide yet — for
+now, open an issue before a big PR so the direction's agreed on first.
+
+## License
+
+Apache 2.0 — see [`LICENSE`](LICENSE).

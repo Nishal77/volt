@@ -22,9 +22,17 @@ import (
 // TokenSource may hand back a refreshed token on later use — callers
 // should re-check tok.Token() after each request and persist it if it
 // changed, since Gmail access tokens expire in about an hour.
+//
+// Every request this client makes retries on Gmail's 429 and on transient
+// 5xx/network errors (retry.go) — wired once here so list/get/send/
+// attachment calls all get it, instead of each call site needing its own
+// retry loop.
 func NewService(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (*gmail.Service, oauth2.TokenSource, error) {
 	ts := cfg.TokenSource(ctx, tok)
-	svc, err := gmail.NewService(ctx, option.WithTokenSource(ts))
+	httpClient := oauth2.NewClient(ctx, ts)
+	httpClient.Transport = &retryTransport{base: httpClient.Transport}
+
+	svc, err := gmail.NewService(ctx, option.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, nil, err
 	}

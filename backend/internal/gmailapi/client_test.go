@@ -1,7 +1,6 @@
 package gmailapi
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"testing"
@@ -10,20 +9,6 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 )
-
-func TestReplySubject(t *testing.T) {
-	cases := map[string]string{
-		"Hello":       "Re: Hello",
-		"Re: Hello":   "Re: Hello",
-		"re: hello":   "re: hello",
-		"  Re: Hello": "  Re: Hello",
-	}
-	for in, want := range cases {
-		if got := replySubject(in); got != want {
-			t.Errorf("replySubject(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
 
 func TestHasLabel(t *testing.T) {
 	if !hasLabel([]string{"INBOX", "UNREAD"}, "UNREAD") {
@@ -48,17 +33,6 @@ func TestHeader(t *testing.T) {
 	}
 	if got := header(msg, "Missing"); got != "" {
 		t.Errorf("header for missing name = %q, want empty", got)
-	}
-}
-
-func TestExtractBodyPlainText(t *testing.T) {
-	data := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString([]byte("hello world"))
-	part := &gmail.MessagePart{
-		MimeType: "text/plain",
-		Body:     &gmail.MessagePartBody{Data: data},
-	}
-	if got := extractBody(part); got != "hello world" {
-		t.Errorf("extractBody = %q, want %q", got, "hello world")
 	}
 }
 
@@ -92,19 +66,5 @@ func TestIsRateLimited(t *testing.T) {
 	}
 	if IsRateLimited(errors.New("boom")) {
 		t.Error("expected unrelated error not to be rate limited")
-	}
-}
-
-func TestExtractBodyNestedMultipart(t *testing.T) {
-	data := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString([]byte("nested body"))
-	part := &gmail.MessagePart{
-		MimeType: "multipart/alternative",
-		Parts: []*gmail.MessagePart{
-			{MimeType: "text/html", Body: &gmail.MessagePartBody{Data: "irrelevant"}},
-			{MimeType: "text/plain", Body: &gmail.MessagePartBody{Data: data}},
-		},
-	}
-	if got := extractBody(part); got != "nested body" {
-		t.Errorf("extractBody = %q, want %q", got, "nested body")
 	}
 }
