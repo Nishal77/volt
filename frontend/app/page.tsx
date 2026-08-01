@@ -81,9 +81,7 @@ export default function Home() {
         <div className="text-lg font-semibold tracking-tight">Volt</div>
         <div className="flex items-center gap-3">
           <a
-            href="https://github.com/your-repo/blob/main/docs/SELF_HOSTING.md"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/docs"
             className="hidden sm:inline text-sm text-body hover:text-ink transition-colors"
           >
             Docs
@@ -280,14 +278,9 @@ export default function Home() {
             Running in about 5 minutes.
           </h2>
           <p className="mt-4 text-body">
-            Full walkthrough, including your own Google OAuth client, in{" "}
-            <a
-              href="https://github.com/your-repo/blob/main/docs/SELF_HOSTING.md"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline"
-            >
-              docs/SELF_HOSTING.md
+            Full walkthrough, including your own Google OAuth client, in the{" "}
+            <a href="/docs#getting-started" className="text-primary underline">
+              docs
             </a>
             .
           </p>
@@ -319,9 +312,7 @@ export default function Home() {
             View on GitHub
           </a>
           <a
-            href="https://github.com/your-repo/blob/main/docs/SELF_HOSTING.md"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/docs"
             className="inline-flex items-center h-14 px-8 rounded-pill border border-white/30 font-semibold hover:bg-white/10 transition-colors"
           >
             Read the docs
