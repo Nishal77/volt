@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AnimatedCardStack } from "./ui/animated-card-stack";
 import { Overlay } from "./CommandPalette";
 import { SenderAvatar } from "./SenderAvatar";
@@ -19,22 +19,23 @@ export type ReplyLaterItem = {
 // state) — this is a personal reminder stack, not a real inbox view.
 // Move to a Gmail label if it needs to survive a browser wipe or show up
 // on another device.
-export function useReplyLater() {
-  const [items, setItems] = useState<ReplyLaterItem[]>([]);
+function readStored(): ReplyLaterItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = (JSON.parse(raw) as ReplyLaterItem[]).filter((i) => i.thread_id);
+    // Older builds could persist an entry with an empty thread_id — write
+    // the cleaned list back so it doesn't collide again on next load.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+    return parsed;
+  } catch {
+    return [];
+  }
+}
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = (JSON.parse(raw) as ReplyLaterItem[]).filter((i) => i.thread_id);
-      setItems(parsed);
-      // Older builds could persist an entry with an empty thread_id — write
-      // the cleaned list back so it doesn't collide again on next load.
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-    } catch {
-      // ignore corrupt storage
-    }
-  }, []);
+export function useReplyLater() {
+  const [items, setItems] = useState<ReplyLaterItem[]>(readStored);
 
   function persist(next: ReplyLaterItem[]) {
     setItems(next);

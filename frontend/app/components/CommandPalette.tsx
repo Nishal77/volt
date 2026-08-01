@@ -84,10 +84,14 @@ function CommandIcon() {
 function CommandPalette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [prevQuery, setPrevQuery] = useState(query);
   const listRef = useRef<HTMLUListElement>(null);
   const filtered = commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()));
 
-  useEffect(() => setActive(0), [query]);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
+    setActive(0);
+  }
 
   function run(c: Command) {
     c.run();

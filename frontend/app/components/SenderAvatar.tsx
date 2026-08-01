@@ -20,11 +20,16 @@ export function SenderAvatar({
   const color = avatarColor(from);
   const [candidates, setCandidates] = useState<string[]>([]);
   const [candidateIndex, setCandidateIndex] = useState(0);
+  const [prevFrom, setPrevFrom] = useState(from);
+
+  if (from !== prevFrom) {
+    setPrevFrom(from);
+    setCandidates([]);
+    setCandidateIndex(0);
+  }
 
   useEffect(() => {
     let cancelled = false;
-    setCandidates([]);
-    setCandidateIndex(0);
     avatarCandidates(from).then((urls) => {
       if (!cancelled) setCandidates(urls);
     });
