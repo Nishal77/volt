@@ -37,8 +37,8 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 
 	vaultGroup := r.Group("/api/vault")
 	vaultGroup.GET("/status", vaultStatusHandler(pool))
-	vaultGroup.POST("/setup", vaultSetupHandler(pool))
-	vaultGroup.POST("/unlock", vaultUnlockHandler(pool))
+	vaultGroup.POST("/setup", vaultSetupHandler(pool, oauthCfg))
+	vaultGroup.POST("/unlock", vaultUnlockHandler(pool, oauthCfg))
 	vaultGroup.POST("/reset", vaultResetHandler(pool))
 
 	r.GET("/auth/google", googleLoginHandler(oauthCfg))
@@ -72,6 +72,8 @@ func NewRouter(pool *pgxpool.Pool, cfg config.Config) *gin.Engine {
 	settings := r.Group("/api/settings")
 	settings.POST("/ai-key", saveAIKeyHandler(pool))
 	settings.GET("/ai-key", getAIKeyStatusHandler(pool))
+	settings.POST("/oauth-client", saveOAuthClientHandler(pool, oauthCfg))
+	settings.GET("/oauth-client", getOAuthClientStatusHandler(oauthCfg))
 
 	return r
 }

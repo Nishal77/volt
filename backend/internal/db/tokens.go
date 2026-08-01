@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS ai_key (
 	encrypted_key BYTEA NOT NULL,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS oauth_client (
+	id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+	encrypted_config BYTEA NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS ai_summary (
 	thread_id TEXT PRIMARY KEY,
 	summary TEXT NOT NULL,

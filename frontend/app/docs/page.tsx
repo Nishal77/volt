@@ -221,23 +221,30 @@ export default function DocsPage() {
 
           <Section id="first-run" title="First run: OAuth & the vault" eyebrow="Setup">
             <p>
-              The first time Volt starts, two things happen before you can see a single
+              The first time Volt starts, a few things happen before you can see a single
               email.
             </p>
-            <p className="font-semibold text-[#1a1a1a]">1. Connect Gmail</p>
+            <p className="font-semibold text-[#1a1a1a]">1. Create a vault passphrase</p>
+            <p>
+              Before Volt will touch your Gmail token or an AI key, it asks you to choose a
+              passphrase. This isn&apos;t a login password, it&apos;s the key that encrypts your
+              credentials on disk. Volt never stores this passphrase anywhere. It exists only
+              in your head and, briefly, in the server&apos;s memory while it&apos;s running.
+            </p>
+            <p className="font-semibold text-[#1a1a1a]">2. Add your Google OAuth client</p>
+            <p>
+              Each self-hosted instance needs its own Google OAuth client, free to create in
+              a couple minutes at the Google Cloud Console. Instead of editing a config file,
+              you paste the Client ID and Client Secret straight into the app the first time
+              it asks. It takes effect immediately, no restart.
+            </p>
+            <p className="font-semibold text-[#1a1a1a]">3. Connect Gmail</p>
             <p>
               Volt asks Google for permission to read and act on your inbox, the same consent
               screen you&apos;ve seen on any &quot;sign in with Google&quot; button. It only asks for
               the minimum it needs to read mail, send mail, and organize your inbox, nothing
               broader. Google keeps the ability to revoke that access at any time from your
               own account settings, independent of Volt.
-            </p>
-            <p className="font-semibold text-[#1a1a1a]">2. Create a vault passphrase</p>
-            <p>
-              Before Volt will touch your Gmail token or an AI key, it asks you to choose a
-              passphrase. This isn&apos;t a login password, it&apos;s the key that encrypts your
-              credentials on disk. Volt never stores this passphrase anywhere. It exists only
-              in your head and, briefly, in the server&apos;s memory while it&apos;s running.
             </p>
             <Callout tone="warn">
               There is no &quot;forgot password&quot; recovery for the vault passphrase, on purpose.

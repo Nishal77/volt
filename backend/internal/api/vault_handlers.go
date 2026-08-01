@@ -6,11 +6,23 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/oauth2"
 
 	"github.com/Nishal77/volt/backend/internal/crypto"
 	"github.com/Nishal77/volt/backend/internal/db"
+	"github.com/Nishal77/volt/backend/internal/gmailapi"
 	"github.com/Nishal77/volt/backend/internal/vault"
 )
+
+// hydrateOAuthClient loads a previously in-app-configured OAuth client back
+// into the live config after unlock, so a self-hoster who set it up via the
+// UI (rather than .env) doesn't have to re-enter it every restart.
+func hydrateOAuthClient(ctx *gin.Context, pool *pgxpool.Pool, oauthCfg *oauth2.Config, key []byte) {
+	clientID, clientSecret, err := db.GetOAuthClient(ctx.Request.Context(), pool, key)
+	if err == nil {
+		gmailapi.SetClient(oauthCfg, clientID, clientSecret)
+	}
+}
 
 const vaultVerifierPlaintext = "volt-vault-ok"
 
@@ -30,7 +42,7 @@ func vaultStatusHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 // starts. It picks the salt, derives the key from the given passphrase,
 // and stores a verifier so future unlocks can check the passphrase without
 // touching real credentials.
-func vaultSetupHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+func vaultSetupHandler(pool *pgxpool.Pool, oauthCfg *oauth2.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req passphraseRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -58,11 +70,12 @@ func vaultSetupHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 			return
 		}
 		vault.Unlock(key)
+		hydrateOAuthClient(c, pool, oauthCfg, key)
 		c.JSON(http.StatusOK, gin.H{"status": "unlocked"})
 	}
 }
 
-func vaultUnlockHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+func vaultUnlockHandler(pool *pgxpool.Pool, oauthCfg *oauth2.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req passphraseRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,6 +99,7 @@ func vaultUnlockHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 			return
 		}
 		vault.Unlock(key)
+		hydrateOAuthClient(c, pool, oauthCfg, key)
 		c.JSON(http.StatusOK, gin.H{"status": "unlocked"})
 	}
 }

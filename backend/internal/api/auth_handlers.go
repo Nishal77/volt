@@ -9,6 +9,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/Nishal77/volt/backend/internal/db"
+	"github.com/Nishal77/volt/backend/internal/gmailapi"
 	"github.com/Nishal77/volt/backend/internal/vault"
 )
 
@@ -19,6 +20,10 @@ const oauthState = "volt"
 
 func googleLoginHandler(cfg *oauth2.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !gmailapi.Configured(cfg) {
+			c.JSON(http.StatusPreconditionRequired, gin.H{"error": "oauth_not_configured"})
+			return
+		}
 		url := cfg.AuthCodeURL(oauthState, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 		c.Redirect(http.StatusFound, url)
 	}

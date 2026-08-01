@@ -27,10 +27,12 @@ cd deploy
 cp .env.example .env
 ```
 
-Edit `.env` and fill in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` from
-step 2. Leave the encryption key fields alone — there are none. Volt
-derives its encryption key from a passphrase you set on first run, not
-from anything in `.env`. See
+Leave `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` blank — you'll paste
+those into the running app in step 6 instead, no text editor required.
+(If you'd rather set them here directly, that still works too.) Leave the
+encryption key fields alone — there are none. Volt derives its encryption
+key from a passphrase you set on first run, not from anything in `.env`.
+See
 [`docs/decisions/0003-zero-knowledge-vault.md`](decisions/0003-zero-knowledge-vault.md).
 
 ## 4. Run
@@ -48,10 +50,12 @@ First run redirects you to `/unlock`. Set a passphrase — this derives your
 encryption key. There is no recovery if you lose it; Volt never stores it.
 Every backend restart requires unlocking again.
 
-## 6. Connect Gmail
+## 6. Add your OAuth client, then connect Gmail
 
-From the inbox UI, connect your Google account through the OAuth flow you
-configured in step 2.
+If you left `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` blank, the inbox
+screen now asks for them, paste in the Client ID and Client Secret from
+step 2, no restart needed. Then connect your Google account through the
+OAuth flow.
 
 ## 7. (Optional) Add an AI provider key
 
