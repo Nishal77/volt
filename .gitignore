@@ -3,3 +3,5 @@
 deploy/.env
 .playwright-mcp/
 skills-lock.json
+CLAUDE.md
+CHANGELOG.md
